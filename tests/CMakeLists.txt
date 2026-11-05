@@ -6,3 +6,5 @@ function(uns_add_test name)
 endfunction()
 
 uns_add_test(test_complex_geometry uns_generate uns_geometry uns_complex)
+uns_add_test(test_partition uns_partition uns_generate uns_geometry uns_complex)
+uns_add_test(test_distribute uns_parallel uns_partition uns_generate uns_geometry uns_complex)
