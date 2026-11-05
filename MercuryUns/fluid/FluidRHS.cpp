@@ -27,7 +27,7 @@ inline Prim face_state(const double *W, const double *grad, Id c, const Vec3 &dx
 }
 } // namespace
 
-void fluid_flux_rhs(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo &bc, const Config &cfg, const Prim &fs, const double *W,
+void fluid_flux_rhs(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo &bc, const Config &cfg, int species, const Prim &fs, const double *W,
                     const double *grad, double *rhs)
 {
     const CellComplex &cx = lm.mesh.cx;
@@ -62,7 +62,7 @@ void fluid_flux_rhs(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo
             int sgn = cx.f2c.sgn[k0];
             if (nc == 2 && cx.cell_material[c] == kSolid) { c = cx.f2c.idx[k0 + 1]; sgn = cx.f2c.sgn[k0 + 1]; }
             const Prim in = face_state(W, grad, c, geo.face_center[f] - geo.cell_center[c]);
-            const Prim gh = ghost_state(kind, in, (double(sgn)) * n, fs);
+            const Prim gh = ghost_state(kind, species, in, (double(sgn)) * n, fs);
             if (sgn > 0) { cL = c; L = in; R = gh; } else { cR = c; R = in; L = gh; }
         }
         double F[5];
@@ -73,25 +73,48 @@ void fluid_flux_rhs(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo
     }
 }
 
-void add_em_sources(const LocalMesh &lm, const Config &cfg, int s, const double *WH, const double *WNa, const double *up, const double *B,
-                    const double *J, double *rhs)
+void add_sources(const LocalMesh &lm, const Config &cfg, int s, const double *WH, const double *WNa, const double *up, const double *B,
+                 const double *J, const SourceFields &sf, double dt, double *rhs)
 {
     const CellComplex &cx = lm.mesh.cx;
+    const Scales &sc = cfg.sc;
     const double *W = s == 0 ? WH : WNa;
     for (Id c = 0; c < cx.ent[3].n_owned; ++c)
     {
         if (cx.cell_material[c] == kSolid) continue;
-        const NumInfo ni = cfg.sc.numinfo(WH[5 * static_cast<std::size_t>(c)], WNa[5 * static_cast<std::size_t>(c)]);
+        const std::size_t i = c;
+        const NumInfo ni = sc.numinfo(WH[5 * i], WNa[5 * i]);
         const double ns = s == 0 ? ni.nH : ni.nNa, ws = s == 0 ? ni.wH : ni.wNa;
-        const Vec3 u(W[5 * c + 1], W[5 * c + 2], W[5 * c + 3]);
-        const Vec3 uplus(up[3 * c], up[3 * c + 1], up[3 * c + 2]);
-        const Vec3 b(B[3 * c], B[3 * c + 1], B[3 * c + 2]);
-        const Vec3 j(J[3 * c], J[3 * c + 1], J[3 * c + 2]);
-        const Vec3 S = cfg.sc.induce_coeff * ns * cross(u - uplus, b) + (cfg.sc.inver_MA2 * ws) * cross(j, b);
-        rhs[5 * static_cast<std::size_t>(c) + 1] += S.x;
-        rhs[5 * static_cast<std::size_t>(c) + 2] += S.y;
-        rhs[5 * static_cast<std::size_t>(c) + 3] += S.z;
-        rhs[5 * static_cast<std::size_t>(c) + 4] += dot(u, S);
+        const double rho = std::max(W[5 * i], 0.0);
+        const Vec3 u(W[5 * i + 1], W[5 * i + 2], W[5 * i + 3]);
+        double *r = rhs + 5 * i;
+        Vec3 S;
+        if (cfg.lorentz_force)
+        {
+            const Vec3 uplus(up[3 * i], up[3 * i + 1], up[3 * i + 2]), b(B[3 * i], B[3 * i + 1], B[3 * i + 2]), j(J[3 * i], J[3 * i + 1], J[3 * i + 2]);
+            (void)uplus; (void)ns; // the induce term is integrated exactly by physics/Gyration (operator splitting)
+            S += (sc.inver_MA2 * ws) * cross(j, b);
+        }
+        if (cfg.ambipolar && sf.dpe) S -= ws * Vec3(sf.dpe[3 * i], sf.dpe[3 * i + 1], sf.dpe[3 * i + 2]);
+        r[1] += S.x; r[2] += S.y; r[3] += S.z;
+        r[4] += dot(u, S) + (rho > 1e-30 ? 0.5 * dt * dot(S, S) / rho : 0.0); // work with the mid-point velocity
+        if (cfg.chemistry && sf.vst)
+        {
+            const double vst = sf.vst[i], u2 = dot(u, u);
+            const double Ts = W[5 * i + 4] / (rho > 0 ? rho : 1e-300) / (s == 0 ? sc.state_coeff_H : sc.state_coeff_Na) * sc.T_ref;
+            const double Msum = sc.M_H + sc.M_Na;
+            const double b1 = vst * (cfg.chem.Tn0 - Ts) * (s == 0 ? sc.M_H / Msum : 0.5);
+            const double b2 = (s == 0 ? sc.M_Na / Msum : 0.5) * vst;
+            r[1] -= sc.a4 * rho * u.x * vst; r[2] -= sc.a4 * rho * u.y * vst; r[3] -= sc.a4 * rho * u.z * vst;
+            r[4] -= sc.a4 * rho * u2 * vst;               // drag
+            r[4] += sc.a5 * ns * b1;                      // temperature relaxation
+            r[4] += sc.a4 * rho * u2 * b2;                // thermal drift
+            if (s == 1 && sf.photo)
+            {
+                r[0] += sc.a1_Na * sf.photo[i];           // Na+ creation
+                r[4] += sc.a6 * sf.photo[i] * cfg.chem.Tn0; // internal energy of the new ions
+            }
+        }
     }
 }
 
@@ -104,26 +127,33 @@ double local_time_step(const LocalMesh &lm, const Geometry &geo, const Config &c
         if (cx.cell_material[c] == kSolid) continue;
         const Vec3 b(B[3 * c], B[3 * c + 1], B[3 * c + 2]);
         const double B2 = dot(b, b);
-        // per species: dt <= cfl V / sum_f (|u.n| + c_fast) A ; the density in the wave speeds is floored (as in the legacy
-        // scheme) so that a trace species with a huge Alfven speed does not dictate the step
+        // dt <= cfl V / sum_f (|u_s.n| + c_s,fast) A for each species.  The Lorentz force acts on the ions in proportion to their
+        // share w_s, so the magnetic wave speed is collective: it is evaluated with the total mass density (floored as in the legacy
+        // code), while each species keeps its own sound speed.
+        // explicit gyration of the ions about B: dt <= gyro_cfl / Omega (the lighter species gyrates fastest)
+        if (cfg.gyro_cfl > 0 && cfg.sc.induce_coeff > 0)
+        {
+            const double omega = cfg.sc.induce_coeff * std::sqrt(B2) * std::max(cfg.sc.M_ref / cfg.sc.M_H, cfg.sc.M_ref / cfg.sc.M_Na);
+            if (omega > 0) dt = std::min(dt, cfg.gyro_cfl / omega);
+        }
+        const double rho_tot = std::max(WH[5 * static_cast<std::size_t>(c)] + WNa[5 * static_cast<std::size_t>(c)], cfg.rho_floor_dt);
         for (int s = 0; s < 2; ++s)
         {
             const double *w = (s == 0 ? WH : WNa) + 5 * static_cast<std::size_t>(c);
-            const double rho = std::max(w[0], cfg.rho_floor_dt);
+            const double cs2 = cfg.sc.gamma * w[4] / std::max(w[0], 1e-30);
             double denom = 0;
             for (auto k = cx.c2f.begin(c); k < cx.c2f.end(c); ++k)
             {
                 const Id f = cx.c2f.idx[k];
                 const double A = geo.face_area_mag[f];
                 const Vec3 n = (1.0 / A) * geo.face_area[f];
-                const double cs2 = cfg.sc.gamma * w[4] / rho;
-                const double vA2 = cfg.sc.inver_MA2 * B2 / rho;
-                const double vAn2 = cfg.sc.inver_MA2 * dot(b, n) * dot(b, n) / rho;
+                const double vA2 = cfg.sc.inver_MA2 * B2 / rho_tot;
+                const double vAn2 = cfg.sc.inver_MA2 * dot(b, n) * dot(b, n) / rho_tot;
                 const double term = cs2 + vA2;
                 const double cf = std::sqrt(0.5 * (term + std::sqrt(std::max(0.0, term * term - 4 * cs2 * vAn2))));
                 denom += (std::abs(w[1] * n.x + w[2] * n.y + w[3] * n.z) + cf) * A;
             }
-            if (denom > 0) dt = std::min(dt, cfg.cfl * 2.0 * geo.cell_volume[c] / denom); // 2V / sum(lambda A): 1D-equivalent CFL number
+            if (denom > 0) dt = std::min(dt, cfg.cfl * geo.cell_volume[c] / denom);
         }
     }
     return dt;

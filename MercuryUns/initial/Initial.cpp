@@ -23,7 +23,7 @@ void set_initial_state(const LocalMesh &lm, const Geometry &geo, const Config &c
         for (std::size_t c = 0; c < nc; ++c) to_cons(w, cfg.sc.gamma, &U[5 * c]);
     };
     fill(UH, cfg.fsH, cfg.u_inf);
-    fill(UNa, cfg.fsNa, cfg.u_inf);
+    fill(UNa, cfg.fsNa, cfg.u_Na());
     const Vec3 zero;
     for (std::size_t c = 0; c < nc; ++c)
         if (cx.cell_material[c] == kSolid)
@@ -32,7 +32,7 @@ void set_initial_state(const LocalMesh &lm, const Geometry &geo, const Config &c
             to_cons(w, cfg.sc.gamma, &UH[5 * c]);
             to_cons(w, cfg.sc.gamma, &UNa[5 * c]);
         }
-    for (Id f = 0; f < cx.n_faces(); ++f) Phi[f] = dot(cfg.B_imf, geo.face_area[f]);
+    // induced field starts at zero (the IMF is part of the static background, see set_background)
 
     if (!cfg.init_fields.empty())
     {
@@ -67,16 +67,16 @@ void set_background(const LocalMesh &lm, const Geometry &geo, const Config &cfg,
     const CellComplex &cx = lm.mesh.cx;
     PhiAdd.assign(cx.n_faces(), 0.0);
     BaddCell.assign(3 * static_cast<std::size_t>(cx.n_cells()), 0.0);
-    if (!cfg.dipole) return;
-    std::vector<double> A(cx.n_edges());
-    for (Id e = 0; e < cx.n_edges(); ++e)
+    for (Id f = 0; f < cx.n_faces(); ++f) PhiAdd[f] = dot(cfg.B_imf, geo.face_area[f]); // uniform IMF
+    std::vector<double> A(cx.n_edges(), 0.0);
+    for (Id e = 0; cfg.dipole && e < cx.n_edges(); ++e)
     {
         const Vec3 r = geo.edge_mid[e] - cfg.dipole_c;
         const double d2 = dot(r, r) + cfg.dipole_soft * cfg.dipole_soft;
         const Vec3 a = (1.0 / (d2 * std::sqrt(d2))) * cross(cfg.dipole_m, r);
         A[e] = dot(a, geo.edge_vec[e]);
     }
-    for (Id f = 0; f < cx.n_faces(); ++f)
+    for (Id f = 0; cfg.dipole && f < cx.n_faces(); ++f)
         for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) PhiAdd[f] += cx.f2e.sgn[k] * A[cx.f2e.idx[k]];
     const auto b = reconstruct_cell_vector(cx, geo, PhiAdd.data(), cx.n_cells());
     for (Id c = 0; c < cx.n_cells(); ++c) { BaddCell[3 * c] = b[c].x; BaddCell[3 * c + 1] = b[c].y; BaddCell[3 * c + 2] = b[c].z; }

@@ -9,12 +9,25 @@ namespace mercury
 {
 // rhs (5 per cell) is overwritten on the owned fluid cells and zero elsewhere.
 void fluid_flux_rhs(const uns::LocalMesh &lm, const uns::Geometry &geo, const BoundaryInfo &bc, const Config &cfg,
-                    const Prim &freestream, const double *W, const double *grad, double *rhs);
+                    int species, const Prim &freestream, const double *W, const double *grad, double *rhs);
 
-// Lorentz-type sources for species s (0 = H, 1 = Na):
-//   S_mom = induce * n_s (u_s - u+) x B + inver_MA2 * w_s (J x B),  S_E = u_s . S_mom      (added to rhs)
-void add_em_sources(const uns::LocalMesh &lm, const Config &cfg, int species, const double *WH, const double *WNa, const double *uplus,
-                    const double *Btot, const double *J, double *rhs);
+// Per-cell static data of the source terms (local numbering).
+struct SourceFields
+{
+    const double *photo = nullptr; // Na+ production rate [cm^-3 s^-1]
+    const double *vst = nullptr;   // drag / relaxation frequency [1/s] (photo-ionisation frequency of lit / shadowed region)
+    const double *dpe = nullptr;   // grad p_e (3 per cell) or null
+};
+
+// Sources of species s (0 = H, 1 = Na) added to rhs on the owned fluid cells:
+//   Lorentz:     inver_MA2 * w_s (J x B)  (the induce term is applied by physics/Gyration),  energy u_mid . (...), u_mid = u + dt S / (2 rho)
+//                (the mid-point velocity makes the work equal the kinetic-energy change, so the force does not drain the thermal
+//                energy in strongly magnetised, low-beta cells)
+//   ambipolar:   - w_s grad p_e,  energy - w_s u_s . grad p_e
+//   chemistry:   Na+ mass a1 q and internal energy a6 q Tn0 ; drag - a4 rho u vst (and kinetic energy) ;
+//                temperature relaxation a5 n_s b1 and thermal drift a4 rho u^2 b2  (legacy AddSourceToRHS_Fluid)
+void add_sources(const uns::LocalMesh &lm, const Config &cfg, int species, const double *WH, const double *WNa, const double *uplus,
+                 const double *Btot, const double *J, const SourceFields &sf, double dt, double *rhs);
 
 // CFL time step of the owned fluid cells (local value; caller reduces over ranks).
 double local_time_step(const uns::LocalMesh &lm, const uns::Geometry &geo, const Config &cfg, const double *WH, const double *WNa,

@@ -1,0 +1,20 @@
+#pragma once
+// Neutral sodium exosphere (Exner et al. 2020, Table 2: MIV + TD + PSD + SP components) and the Na+ photo-ionisation rate,
+// as in the legacy Mercury_Initial::Initial_Na_And_PhotoRate_.  Positions are in planet radii, x > 0 is the dayside.
+#include "uns/core/Types.h"
+
+namespace mercury
+{
+struct ChemistryRates
+{
+    double sk1 = 5.0e-5;  // photo-ionisation / drag frequency in sunlight  [1/s]
+    double sk2 = 1.0e-5;  // ... in the geometric shadow                    [1/s]
+    double Tn0 = 1000.0;  // neutral temperature [K]
+};
+
+// neutral Na density [cm^-3]; zero inside r <= 1
+double neutral_sodium_cm3(const uns::Vec3 &x, double L_ref_m);
+inline bool in_shadow(const uns::Vec3 &x) { return x.x < 0.0 && x.y * x.y + x.z * x.z < 1.0; }
+// production rate q = nu * n_Na  [cm^-3 s^-1]
+double photo_rate(const uns::Vec3 &x, double L_ref_m, const ChemistryRates &c);
+} // namespace mercury

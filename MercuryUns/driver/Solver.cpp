@@ -10,6 +10,7 @@
 #include "diagnostics/DivB.h"
 #include "induction/Current.h"
 #include "induction/Faraday.h"
+#include "physics/Gyration.h"
 #include "initial/Initial.h"
 #include "io/GlobalFields.h"
 #include "uns/geometry/Reconstruct.h"
@@ -30,12 +31,12 @@ void make_dir(const std::string &d)
 } // namespace
 
 Solver::Solver(MPI_Comm comm, const LocalMesh &lm, const Config &cfg)
-    : comm_(comm), lm_(lm), cfg_(cfg), geo_(compute_geometry(lm.mesh)), ex_(comm, lm), emf_(lm, geo_, ex_),
+    : comm_(comm), lm_(lm), cfg_(cfg), geo_(compute_geometry(lm.mesh)), ex_(comm, lm), emf_(lm, geo_, ex_), amb_(lm, geo_), res_(lm, geo_, ex_, cfg),
       bc_(BoundaryInfo::build(lm, geo_, cfg)), stencil_(lm, geo_, bc_), active_(active_faces(lm.mesh.cx))
 {
     MPI_Comm_rank(comm, &rank_);
     fs_[0] = {cfg.fsH.rho, cfg.u_inf.x, cfg.u_inf.y, cfg.u_inf.z, cfg.fsH.p};
-    fs_[1] = {cfg.fsNa.rho, cfg.u_inf.x, cfg.u_inf.y, cfg.u_inf.z, cfg.fsNa.p};
+    fs_[1] = {cfg.fsNa.rho, cfg.u_Na().x, cfg.u_Na().y, cfg.u_Na().z, cfg.fsNa.p};
 }
 
 void Solver::initialize()
@@ -57,6 +58,15 @@ void Solver::initialize()
     Btot_.assign(3 * nc, 0.0);
     J_.assign(3 * nc, 0.0);
     PhiTot_.assign(cx.n_faces(), 0.0);
+    dpe_.assign(3 * nc, 0.0);
+    photo_.assign(nc, 0.0);
+    vst_.assign(nc, 0.0);
+    for (std::size_t c = 0; c < nc; ++c) // static chemistry fields at the cell centres
+    {
+        const Vec3 x = geo_.cell_center[c];
+        vst_[c] = in_shadow(x) ? cfg_.chem.sk2 : cfg_.chem.sk1;
+        if (cx.cell_material[c] == kFluid) photo_[c] = photo_rate(x, cfg_.sc.L_ref_m, cfg_.chem);
+    }
     r0_.E.assign(cx.n_edges(), 0.0);
     r1_.E.assign(cx.n_edges(), 0.0);
     nstep_ = 0;
@@ -93,6 +103,7 @@ void Solver::prepare(State &s)
     }
     for (Id f = 0; f < cx.n_faces(); ++f) PhiTot_[f] = s.Phi[f] + PhiAdd_[f];
     cell_current(lm_, geo_, Bind_.data(), J_.data());
+    if (cfg_.ambipolar) electron_pressure_gradient(lm_, geo_, W_[0].data(), W_[1].data(), dpe_.data());
 }
 
 double Solver::local_dt() const
@@ -107,16 +118,17 @@ void Solver::rhs(State &s, Rhs &r)
     {
         if (cfg_.second_order)
         {
-            stencil_.limited_gradients(lm_, geo_, bc_, W_[k].data(), fs_[k], true, grad_[k].data());
+            stencil_.limited_gradients(lm_, geo_, bc_, W_[k].data(), k, fs_[k], true, grad_[k].data());
             ex_.forward(Dim::Cell, grad_[k].data(), 15);
         }
         else
             std::fill(grad_[k].begin(), grad_[k].end(), 0.0); // piecewise constant (first order)
-        fluid_flux_rhs(lm_, geo_, bc_, cfg_, fs_[k], W_[k].data(), grad_[k].data(), r.dU[k].data());
+        fluid_flux_rhs(lm_, geo_, bc_, cfg_, k, fs_[k], W_[k].data(), grad_[k].data(), r.dU[k].data());
     }
-    if (cfg_.lorentz_force)
-        for (int k = 0; k < 2; ++k)
-            add_em_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), r.dU[k].data());
+    SourceFields sf;
+    sf.photo = photo_.data(); sf.vst = vst_.data(); sf.dpe = dpe_.data();
+    for (int k = 0; k < 2; ++k)
+        add_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), sf, dt_cur_, r.dU[k].data());
 
     // EMF of the owned edges: ideal part now, the Hall term plugs in here later (hall/HallEMF.h)
     emf_.begin(r.E.data());
@@ -127,6 +139,7 @@ void Solver::rhs(State &s, Rhs &r)
     in.phi_tot = PhiTot_.data();
     in.phi_ind = s.Phi.data();
     add_ideal_emf(lm_, geo_, in, cfg_.ideal, r.E.data());
+    if (cfg_.ambipolar) amb_.add(cfg_, W_[0].data(), W_[1].data(), r.E.data());
     HallConfig hall;
     add_hall_emf(hall, emf_, r.E.data());
     const Vec3 E_inf = -1.0 * cross(cfg_.u_inf, cfg_.B_imf);
@@ -147,7 +160,12 @@ void Solver::enforce_floors(State &s) const
             if (cx.cell_material[c] == kSolid) continue;
             double *u = &s.U[k][5 * static_cast<std::size_t>(c)];
             const double ke = u[0] > 0 ? 0.5 * (u[1] * u[1] + u[2] * u[2] + u[3] * u[3]) / u[0] : 0.0;
-            if (u[0] < cfg_.rho_floor || (cfg_.sc.gamma - 1.0) * (u[4] - ke) < cfg_.p_floor)
+            if (!(u[0] >= cfg_.rho_floor))
+            {
+                // density at/below the floor: restart that cell from a stagnant floor state (keeping the momentum would give u = m / floor)
+                to_cons(Prim{cfg_.rho_floor, 0, 0, 0, cfg_.p_floor}, cfg_.sc.gamma, u);
+            }
+            else if ((cfg_.sc.gamma - 1.0) * (u[4] - ke) < cfg_.p_floor)
             {
                 const Prim w = to_prim(u, cfg_.sc.gamma, cfg_.rho_floor, cfg_.p_floor);
                 to_cons(w, cfg_.sc.gamma, u);
@@ -173,11 +191,20 @@ void Solver::advance(const State &base, const Rhs &r, double dt, State &out)
 double Solver::step(double dt_max)
 {
     if (!initialized_) throw std::logic_error("Solver::step before initialize()");
+    const double t_start = MPI_Wtime();
     prepare(s_);
-    double dt = local_dt(), gdt = dt;
-    MPI_Allreduce(&dt, &gdt, 1, MPI_DOUBLE, MPI_MIN, comm_);
+    double gdt = local_dt();
+    ex_.allreduce(&gdt, 1, MPI_MIN);
     gdt = std::min(gdt, dt_max);
     if (!std::isfinite(gdt) || gdt <= 0) throw std::runtime_error("invalid time step");
+    // Strang splitting: exact half-step gyration, explicit RK2 for everything else, exact half-step gyration
+    const bool split = cfg_.sc.induce_coeff > 0 && cfg_.lorentz_force;
+    if (split)
+    {
+        gyrate(lm_, cfg_, Btot_.data(), 0.5 * gdt, s_.U[0].data(), s_.U[1].data());
+        prepare(s_);
+    }
+    dt_cur_ = gdt;
     rhs(s_, r0_);
     advance(s_, r0_, gdt, s1_);
     prepare(s1_);
@@ -187,9 +214,12 @@ double Solver::step(double dt_max)
     for (int k = 0; k < 2; ++k)
         for (std::size_t i = 0; i < s_.U[k].size(); ++i) s_.U[k][i] = 0.5 * (s_.U[k][i] + s2_.U[k][i]);
     for (std::size_t i = 0; i < s_.Phi.size(); ++i) s_.Phi[i] = 0.5 * (s_.Phi[i] + s2_.Phi[i]);
-    // solid cells keep their (constant) state
+    if (split) gyrate(lm_, cfg_, Btot_.data(), 0.5 * gdt, s_.U[0].data(), s_.U[1].data());
+    // Mercury interior resistivity: implicit CT substep (operator splitting)
+    if (res_.enabled()) cg_total_ += res_.advance(s_.Phi.data(), gdt, active_);
     time_ += gdt;
     ++nstep_;
+    wall_s_ += MPI_Wtime() - t_start;
     return gdt;
 }
 
@@ -199,7 +229,7 @@ Diagnostics Solver::collect(double dt)
     prepare(s_);
     Diagnostics d;
     d.time = time_; d.step = nstep_; d.dt = dt;
-    double loc[3] = {mercury::div_b(cx, s_.Phi.data()).max_rel, 1e300, 1e300};
+    double loc[3] = {mercury::div_b(cx, s_.Phi.data(), PhiAdd_.data()).max_rel, 1e300, 1e300};
     double sum[2] = {0, 0};
     for (Id c = 0; c < cx.ent[3].n_owned; ++c)
     {
@@ -219,6 +249,20 @@ Diagnostics Solver::collect(double dt)
 
 Diagnostics Solver::diagnostics() { return collect(0.0); }
 
+Solver::Profile Solver::profile() const
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    Profile p;
+    p.wall = wall_s_; p.comm = ex_.comm_seconds(); p.steps = nstep_; p.cg_iterations = cg_total_;
+    for (Id c = 0; c < cx.ent[3].n_owned; ++c) (cx.cell_material[c] == kSolid ? p.n_solid : p.n_fluid)++;
+    p.n_edges = cx.ent[1].n_owned; p.n_faces = cx.ent[2].n_owned; p.n_res_edges = res_.n_owned_edges();
+    return p;
+}
+void Solver::reset_profile()
+{
+    wall_s_ = 0; cg_total_ = 0; ex_.reset_comm_clock();
+}
+
 void Solver::log(const Diagnostics &d) const
 {
     if (rank_ == 0)
@@ -237,7 +281,7 @@ void Solver::run()
     {
         dt = step(cfg_.t_end - time_);
         if (cfg_.log_every > 0 && nstep_ % cfg_.log_every == 0) log(collect(dt));
-        if (cfg_.output_every > 0 && nstep_ % cfg_.output_every == 0 && cfg_.write_vtk) write_vtk();
+        if (cfg_.output_every > 0 && nstep_ % cfg_.output_every == 0 && nstep_ >= cfg_.output_start && cfg_.write_vtk) write_vtk();
     }
     const Diagnostics d = collect(dt);
     log(d);

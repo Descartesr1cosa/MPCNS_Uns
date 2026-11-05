@@ -1,0 +1,16 @@
+//=============================================================================
+// Mercury case mesh (coarse): cubed-sphere solid shell r0..r1 + fluid out to the eccentric ellipsoid of the legacy setup
+//   mpcns_pre setup.txt mercury_mesh.txt output_dir=... proc_num=N [cost_profile=partition_profile.txt]
+// Legacy (Preprocess/INPUT/setup.txt): cs_r0 = 0.8, cs_r1 = 1.0, outer box x[-12,4] y[-10,10] z[-10,10].
+//=============================================================================
+string mesh_source        cubed_sphere
+int    cs_ncube           12              // cells per panel edge (legacy production mesh: 49)
+int    cs_nsolid          4               // solid radial layers between r0 and r1
+int    cs_nr              28              // total radial layers = solid + fluid (fluid: 24)
+double cs_r_in            0.8             // r0, inner boundary of the solid shell
+double cs_r_surf          1.0             // r1, planet surface = fluid/solid interface
+double cs_r_stretch       1.15            // growth of fluid layer thickness
+bool   cs_ellipsoid       1
+string cs_ell_lo          -12 -10 -10
+string cs_ell_hi          4 10 10
+string partition_method   hilbert

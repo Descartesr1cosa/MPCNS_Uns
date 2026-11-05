@@ -6,6 +6,10 @@ add_library(mercury_core STATIC
     induction/EdgeEMF.cpp
     induction/IdealEMF.cpp
     induction/Current.cpp
+    induction/Resistive.cpp
+    physics/Exosphere.cpp
+    physics/Gyration.cpp
+    physics/Ambipolar.cpp
     physics/Scales.cpp
     Config.cpp
     boundary/BoundaryInfo.cpp

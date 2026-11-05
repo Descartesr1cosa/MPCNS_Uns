@@ -24,6 +24,14 @@ struct Scales
     double state_coeff_H = 1, state_coeff_Na = 1; // p = rho T coeff   (T nondimensional)
     double ne_floor = 0.01;
 
+    // chemistry / ambipolar / resistivity coefficients (legacy AddSourceToRHS_Fluid, AddAmbipolarEdgeEMF_, inver_Rem)
+    double T_ref = 1, L_ref_m = 1;      // K, m
+    double a1_Na = 0;                   // mass source per (cm^-3 s^-1) of Na+ production
+    double a4 = 0;                      // drag: L_ref / U_ref
+    double a5 = 0, a6 = 0;              // temperature relaxation / energy of the new ions
+    double pressure_coef = 0;           // ambipolar: (rho_ref U_ref) / (q_e L_ref B_ref n_ref)
+    double inver_Rem = 0;               // eta_max / (mu0 U_ref L_ref): nondimensional magnetic diffusivity
+
     // From the legacy-style physical reference values (U_ref, T_ref, n_ref, ... see MercuryUns/INPUT/setup.txt).
     static Scales from_params(const uns::Params &p);
     // Directly nondimensional (tests): unit masses, no induce term.

@@ -36,10 +36,17 @@ HexMesh make_box(const BoxSpec &s);
 struct CubedSphereSpec
 {
     int ncube = 8;
-    int nr = 8;
+    int nr = 8;               // total radial layers (solid + fluid)
     int n_solid = 0;
     double r_in = 1.0, r_out = 10.0;
-    double r_stretch = 1.0; // geometric ratio of successive radial layer thicknesses
+    double r_stretch = 1.0;   // geometric ratio of successive radial layer thicknesses
+
+    // Planet + ellipsoidal domain (Mercury setup).  If r_surf > 0 the first n_solid layers are uniform between r_in and
+    // r_surf, the fluid layers grow geometrically (ratio r_stretch) from r_surf to the outer surface.  If `ellipsoid` is set the
+    // outer surface is the ellipsoid with bounding box [ell_lo, ell_hi] (hit by the ray from the origin) instead of the sphere r_out.
+    double r_surf = 0.0;
+    bool ellipsoid = false;
+    Vec3 ell_lo{-12, -10, -10}, ell_hi{4, 10, 10};
 };
 HexMesh make_cubed_sphere_shell(const CubedSphereSpec &s);
 } // namespace uns

@@ -17,6 +17,8 @@
 #include "hall/HallEMF.h"
 #include "induction/EdgeEMF.h"
 #include "induction/IdealEMF.h"
+#include "induction/Resistive.h"
+#include "physics/Ambipolar.h"
 #include "uns/comm/Exchanger.h"
 #include "uns/geometry/Geometry.h"
 #include "uns/parallel/LocalMesh.h"
@@ -49,6 +51,17 @@ public:
     void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
     void write_global_fields(const std::string &path); // collective: coarse solution / restart file (rank 0 writes)
 
+    // wall-clock bookkeeping of the time loop (for load-balance calibration)
+    struct Profile
+    {
+        double wall = 0, comm = 0;             // seconds spent in step(): total / in exchanges, reductions and waits
+        long steps = 0, cg_iterations = 0;
+        long n_fluid = 0, n_solid = 0, n_edges = 0, n_res_edges = 0, n_faces = 0;   // owned entities of this rank
+        double compute() const { return wall - comm; }
+    };
+    Profile profile() const;
+    void reset_profile();
+
     const State &state() const { return s_; }
     State &state() { return s_; }
     const uns::LocalMesh &mesh() const { return lm_; }
@@ -78,6 +91,8 @@ private:
     uns::Geometry geo_;
     uns::comm::Exchanger ex_;
     EdgeEMF emf_;
+    AmbipolarEMF amb_;
+    ResistiveSolver res_;
     BoundaryInfo bc_;
     Stencil stencil_;
     std::vector<char> active_;
@@ -86,7 +101,9 @@ private:
     State s_, s1_, s2_;
     Rhs r0_, r1_;
     std::vector<double> PhiAdd_, BaddCell_;
-    std::vector<double> W_[2], grad_[2], uplus_, Bind_, Btot_, J_, PhiTot_;
+    std::vector<double> W_[2], grad_[2], uplus_, Bind_, Btot_, J_, PhiTot_, dpe_, photo_, vst_;
+    double wall_s_ = 0, dt_cur_ = 0;
+    long cg_total_ = 0;
     double time_ = 0;
     long nstep_ = 0;
     std::vector<std::pair<double, std::string>> pvd_;

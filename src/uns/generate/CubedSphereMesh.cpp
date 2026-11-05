@@ -14,15 +14,33 @@ HexMesh make_cubed_sphere_shell(const CubedSphereSpec &s)
     const int M = s.ncube, nr = s.nr;
     HexMesh h;
     h.tag_names = {"", "inner", "outer"};
-    // radial coordinates (geometric stretching of the layer thickness)
-    std::vector<double> r(nr + 1);
+    // radial fractions along a ray: fluid layers (or all layers) grow geometrically
+    const int nfluid = s.r_surf > 0 ? nr - s.n_solid : nr;
+    std::vector<double> frac(nfluid + 1);
     {
         double sum = 0, dr = 1;
-        std::vector<double> w(nr);
-        for (int k = 0; k < nr; ++k) { w[k] = dr; sum += dr; dr *= s.r_stretch; }
-        r[0] = s.r_in;
-        for (int k = 0; k < nr; ++k) r[k + 1] = r[k] + (s.r_out - s.r_in) * w[k] / sum;
+        std::vector<double> w(nfluid);
+        for (int k = 0; k < nfluid; ++k) { w[k] = dr; sum += dr; dr *= s.r_stretch; }
+        frac[0] = 0;
+        for (int k = 0; k < nfluid; ++k) frac[k + 1] = frac[k] + w[k] / sum;
     }
+    const Vec3 ec = 0.5 * (s.ell_lo + s.ell_hi), ea = 0.5 * (s.ell_hi - s.ell_lo);
+    // outer radius along direction d : sphere, or intersection of the ray t*d with the ellipsoid
+    auto outer_radius = [&](const Vec3 &d) {
+        if (!s.ellipsoid) return s.r_out;
+        // |((t d - c)/a)|^2 = 1
+        const Vec3 dn(d.x / ea.x, d.y / ea.y, d.z / ea.z), cn(ec.x / ea.x, ec.y / ea.y, ec.z / ea.z);
+        const double A = dot(dn, dn), Bq = -2 * dot(dn, cn), C = dot(cn, cn) - 1.0;
+        return (-Bq + std::sqrt(Bq * Bq - 4 * A * C)) / (2 * A);
+    };
+    auto radius = [&](int k, const Vec3 &d) {
+        if (s.r_surf > 0)
+        {
+            if (k <= s.n_solid) return s.r_in + (s.r_surf - s.r_in) * k / s.n_solid;
+            return s.r_surf + (outer_radius(d) - s.r_surf) * frac[k - s.n_solid];
+        }
+        return s.r_in + (outer_radius(d) - s.r_in) * frac[k];
+    };
     const double pi4 = std::atan(1.0);
     std::map<std::tuple<int, int, int, int>, Id> ids;
     // q in [0,M]^3 with one coordinate on the cube surface (q==0 or q==M)
@@ -34,7 +52,7 @@ HexMesh make_cubed_sphere_shell(const CubedSphereSpec &s)
         Vec3 d(ang(q[0]), ang(q[1]), ang(q[2]));
         d *= 1.0 / norm(d);
         const Id id = static_cast<Id>(h.x.size());
-        h.x.push_back(r[k] * d);
+        h.x.push_back(radius(k, d) * d);
         ids.emplace(key, id);
         return id;
     };

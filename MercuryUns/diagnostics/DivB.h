@@ -10,5 +10,7 @@ struct DivBReport
     long worst_cell_gid = -1;
 };
 // Over the owned cells of this rank (global max is the caller's MPI_Allreduce).
-DivBReport div_b(const uns::CellComplex &cx, const double *B);
+// `scale_extra`: optional second flux array (background field) added to the normalisation sum|B_f| + |B_extra,f|, so that the
+// round-off level is measured against the total field the update works with.
+DivBReport div_b(const uns::CellComplex &cx, const double *B, const double *scale_extra = nullptr);
 } // namespace mercury

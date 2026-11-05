@@ -18,10 +18,19 @@ Scales Scales::from_params(const uns::Params &p)
     s.M_Na = p.get_double("mole_mass2", 0.023);
     const double rho_ref = s.M_ref * n / NA;
     s.inver_MA2 = B * B / (U * U * mu0 * rho_ref);
-    s.induce_coeff = qe * L * B * n / (rho_ref * U);
+    s.induce_coeff = p.get_double("induce_scale", 1.0) * qe * L * B * n / (rho_ref * U); // induce_scale: experiments only
     s.state_coeff_H = R * T / (s.M_H * U * U);
     s.state_coeff_Na = R * T / (s.M_Na * U * U);
     s.ne_floor = p.get_double("ne_hall_floor", 0.01);
+    const double kB = R / NA, m_Na = s.M_Na / NA;
+    s.T_ref = T;
+    s.L_ref_m = L;
+    s.a1_Na = (L / U) * (m_Na / rho_ref) * 1e6;
+    s.a4 = L / U;
+    s.a5 = 3.0 * L * kB * n / (rho_ref * U * U * U);
+    s.a6 = 1.0e6 * L * kB / (rho_ref * U * U * U * (s.gamma - 1.0));
+    s.pressure_coef = rho_ref * U / (qe * L * B * n);
+    s.inver_Rem = p.get_double("eta_max_mercury", 0.0) / (mu0 * U * L);
     return s;
 }
 

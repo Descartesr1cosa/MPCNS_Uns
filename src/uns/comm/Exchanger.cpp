@@ -10,6 +10,7 @@ Exchanger::Exchanger(MPI_Comm comm, const LocalMesh &lm) : comm_(comm), lm_(lm) 
 void Exchanger::exchange_(const CommLists &send, const CommLists &recv, const EntityInfo &ent, double *data, int nc,
                           bool accumulate, bool sign_on_send)
 {
+    const double t_start = MPI_Wtime();
     sbuf_.resize(send.total() * nc);
     rbuf_.resize(recv.total() * nc);
     std::vector<MPI_Request> req;
@@ -43,6 +44,14 @@ void Exchanger::exchange_(const CommLists &send, const CommLists &recv, const En
             dst = accumulate ? dst + s * rbuf_[k * nc + c] : s * rbuf_[k * nc + c];
         }
     }
+    comm_s_ += MPI_Wtime() - t_start; // packing + transfer + waiting
+}
+
+void Exchanger::allreduce(double *v, int n, MPI_Op op)
+{
+    const double t0 = MPI_Wtime();
+    MPI_Allreduce(MPI_IN_PLACE, v, n, MPI_DOUBLE, op, comm_);
+    comm_s_ += MPI_Wtime() - t0;
 }
 
 void Exchanger::forward(Dim d, double *data, int nc)

@@ -61,6 +61,9 @@ void add_ideal_emf(const LocalMesh &lm, const Geometry &geo, const IdealInputs &
         const std::int64_t f0 = cx.e2f.begin(e), f1 = cx.e2f.end(e);
         const int nf = static_cast<int>(f1 - f0);
         if (nf == 0 || geo.edge_len[e] <= 0) continue;
+        bool any_fluid = false; // edges of solid cells only carry no flow: E = 0
+        for (std::int64_t k = geo.ec_ptr[e]; k < geo.ec_ptr[e + 1] && !any_fluid; ++k) any_fluid = cx.cell_material[geo.ec_cell[k]] == uns::kFluid;
+        if (!any_fluid) continue;
         const Vec3 &t = geo.edge_vec[e];
         const double L = geo.edge_len[e];
         const Vec3 th = (1.0 / L) * t;

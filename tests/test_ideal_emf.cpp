@@ -363,7 +363,7 @@ int main(int argc, char **argv)
     rs.regions.push_back(reg);
     Mesh hang = build_refined_mesh(box, rs, std::vector<int>(box.cx.n_cells(), 0)).fine;
     CubedSphereSpec cs;
-    cs.ncube = 4; cs.nr = 4; cs.n_solid = 1; cs.r_in = 1; cs.r_out = 5; cs.r_stretch = 1.2;
+    cs.ncube = 4; cs.nr = 4; cs.n_solid = 0; // all fluid: edges of solid-only cells are skipped by the ideal EMF cs.r_in = 1; cs.r_out = 5; cs.r_stretch = 1.2;
     Mesh shell = build_mesh(make_cubed_sphere_shell(cs));
 
     if (rank == 0)

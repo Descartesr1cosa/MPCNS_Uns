@@ -21,7 +21,12 @@ public:
     void forward(Dim d, double *data, int ncomp = 1);
     void reduce_edges(double *data, int ncomp = 1);
     void assemble_edges(double *data, int ncomp = 1);
+    // timed collectives: the time spent here and in the exchanges above is "communication" (including waiting)
+    void allreduce(double *v, int n, MPI_Op op);
+    double comm_seconds() const { return comm_s_; }
+    void reset_comm_clock() { comm_s_ = 0; }
 private:
+    double comm_s_ = 0;
     void exchange_(const CommLists &send, const CommLists &recv, const EntityInfo &ent, double *data, int ncomp, bool accumulate,
                    bool sign_on_send);
     MPI_Comm comm_;

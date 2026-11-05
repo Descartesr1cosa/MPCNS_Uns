@@ -6,12 +6,13 @@ namespace mercury
 {
 using namespace uns;
 
-Prim ghost_state(FaceKind kind, const Prim &in, const Vec3 &n, const Prim &fs)
+Prim ghost_state(FaceKind kind, int species, const Prim &in, const Vec3 &n, const Prim &fs)
 {
     switch (kind)
     {
     case FaceKind::Wall:
     {
+        if (species == 1) return Prim{1e-12, 0, 0, 0, 1e-12}; // absorbing
         const double un = in.u * n.x + in.v * n.y + in.w * n.z;
         Prim g = in;
         g.u -= 2 * un * n.x; g.v -= 2 * un * n.y; g.w -= 2 * un * n.z;
@@ -77,7 +78,7 @@ Stencil::Stencil(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo &b
 }
 
 void Stencil::limited_gradients(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo &bc, const double *W,
-                                const Prim &fs, bool limit, double *grad) const
+                                int species, const Prim &fs, bool limit, double *grad) const
 {
     const CellComplex &cx = lm.mesh.cx;
     const Id no = cx.ent[3].n_owned;
@@ -101,7 +102,7 @@ void Stencil::limited_gradients(const LocalMesh &lm, const Geometry &geo, const 
                 std::int64_t kk = cx.c2f.begin(c);
                 while (cx.c2f.idx[kk] != f) ++kk;
                 const Vec3 n = (cx.c2f.sgn[kk] / geo.face_area_mag[f]) * geo.face_area[f];
-                wn = ghost_state(bc.face_kind[f], wc, n, fs);
+                wn = ghost_state(bc.face_kind[f], species, wc, n, fs);
             }
             const double wnv[5] = {wn.rho, wn.u, wn.v, wn.w, wn.p};
             for (int m = 0; m < 5; ++m)

@@ -55,6 +55,12 @@ Mesh make_mesh(const Params &p)
         s.ncube = p.get_int("cs_ncube", 8); s.nr = p.get_int("cs_nr", 8); s.n_solid = p.get_int("cs_nsolid", 0);
         s.r_in = p.get_double("cs_r_in", 1.0); s.r_out = p.get_double("cs_r_out", 10.0);
         s.r_stretch = p.get_double("cs_r_stretch", 1.0);
+        // planet + ellipsoidal domain (Mercury): cs_r_in..cs_r_surf solid (uniform), r_surf..ellipsoid fluid (geometric)
+        s.r_surf = p.get_double("cs_r_surf", 0.0);
+        s.ellipsoid = p.get_bool("cs_ellipsoid", false);
+        const auto lo = p.get_doubles("cs_ell_lo"), hi = p.get_doubles("cs_ell_hi");
+        if (lo.size() == 3) s.ell_lo = {lo[0], lo[1], lo[2]};
+        if (hi.size() == 3) s.ell_hi = {hi[0], hi[1], hi[2]};
         return build_mesh(make_cubed_sphere_shell(s));
     }
     throw std::runtime_error("unknown mesh_source '" + src + "' (box|cubed_sphere; plot3d/gmsh readers: see PLAN.md)");

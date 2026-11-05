@@ -12,7 +12,8 @@
 namespace mercury
 {
 // Ghost-side primitive state of a boundary face (n_out = outward unit normal of the existing cell).
-Prim ghost_state(FaceKind kind, const Prim &inside, const uns::Vec3 &n_out, const Prim &freestream);
+// Wall: H+ is reflected (slip wall), Na+ is absorbed (floor-state ghost: ions that reach the surface leave the fluid).
+Prim ghost_state(FaceKind kind, int species, const Prim &inside, const uns::Vec3 &n_out, const Prim &freestream);
 
 class Stencil
 {
@@ -20,7 +21,7 @@ public:
     Stencil(const uns::LocalMesh &lm, const uns::Geometry &geo, const BoundaryInfo &bc);
     // limited gradients (5 primitives x 3) of the owned fluid cells; others are zero.  W: 5 per cell.
     void limited_gradients(const uns::LocalMesh &lm, const uns::Geometry &geo, const BoundaryInfo &bc, const double *W,
-                           const Prim &freestream, bool limit, double *grad) const;
+                           int species, const Prim &freestream, bool limit, double *grad) const;
 private:
     std::vector<std::int64_t> ptr_;
     std::vector<uns::Id> nb_;          // neighbour cell, or -(face+1) for a virtual boundary neighbour

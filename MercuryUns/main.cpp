@@ -84,8 +84,12 @@ int main(int argc, char **argv)
     try
     {
         Params p;
-        if (argc > 1 && std::string(argv[1]) != "-") p.load_file(argv[1]);
-        for (int i = 2; i < argc; ++i) p.set_override(argv[i]);
+        for (int i = 1; i < argc; ++i) // setup files (later ones win), then name=value overrides
+        {
+            const std::string a = argv[i];
+            if (a == "-") continue;
+            if (a.find('=') == std::string::npos) p.load_file(a); else p.set_override(a);
+        }
         char name[64];
         std::snprintf(name, sizeof name, "/part_%05d.unsb", rank);
         LocalMesh lm = io::read_local_mesh(p.get_string("geometry_dir", "geometry") + name);
