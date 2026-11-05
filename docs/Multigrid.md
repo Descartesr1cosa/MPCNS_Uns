@@ -380,3 +380,18 @@ A hierarchy of $m$ levels can give at most $\sim 2.7^{\,m-1}$ (≈ 20× for 4 le
 
 **Conclusion of the two-level experiment:** the uniform-step B multigrid is exact (fixed point $d_1E=0$, $d_2=0$ preserved to round-off through $R$ and `transfer_B`) but gives ≈ 1.5× fewer iterations and no wall-time gain with two levels;
 the expected benefit with more levels is bounded by the CFL ratio of the levels.  Cheaper variants to try next: use the rate of the last smoothing step instead of a separate evaluation, a cheaper $P$ (local, linear) instead of the CG inside `transfer_B`, 3–4 levels.
+
+### 11.3 Multigrid on / off with the Hall term ON (matched runs, 2026-11-05)
+Decision of the user: the Hall term must stay on.  All steady-mode runs of sections 6.1–6.6 used `mercury.txt` (Hall on); only the B prototype of 11.2 had it off.  Matched comparison, coarse mesh, 3 ranks, Hall on,
+`mg_levels=4`, cycle every 4 steps, start 200 (tolerance res_H < 1e-5, res_B < 1e-3):
+
+| mode | multigrid | iterations | wall | final res_H / res_B (3000 it) |
+|---|---|---|---|---|
+| fast (R = 32) | off | 2700 | 90 s | 4.1e-6 / 1.3e-5 |
+| fast (R = 32) | **on** | **1100** | **38 s** | 1.9e-7 / 7.2e-7 |
+| accurate (R = 4) | off | 2950 | 85 s | 6.5e-6 / 9.0e-4 |
+| accurate (R = 4) | on (`mg_relax=0.5`) | 2900 | 94 s | 1.2e-6 / 7.7e-4 |
+
+Refined mesh (129 k cells, 7 ranks, R = 32, 3000 iterations): res_H 1.5e-3 → 3.2e-4, wall +18 % (6.3).
+Two-level B multigrid (fluid frozen), Hall ON, 800 fine steps: plain 214 s / res_B 0.1257, two-level (ν1=10, νc=10) 326 s / 0.1069; plain needs ≈ 1100 steps (≈ 300 s) for 0.107: 1.4× fewer iterations, 1.1× more wall time.
+Summary: the fluid multigrid is worth it in the fast mode (2.4× fewer iterations, 2.3× less wall time; more on refined meshes), useless in the accurate mode (B-limited); the B multigrid gives no wall-time gain.
