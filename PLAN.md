@@ -1,0 +1,110 @@
+# MPCNS_Uns — 全非结构 Hall-MHD（水星磁层）方案与进度
+
+最后更新：2026-11-05。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
+
+## 1. 目标
+
+1. 全部网格用带符号的胞腔复形（cell → face → edge → node）描述，不再区分结构块与非结构区，不限定单元类型（首期只实现六面体）。所有场按实体编号存放。
+2. 先在稀疏粗网格上算粗解。之后读取粗解，用密度、压强、`h|J|/|B|` 等指示器加最大层级，或手动指定区域，加密磁尾重联区等局部，得到**非共形**加密网格。悬挂点算作粗单元自己的顶点，粗单元变成多面体。加密后网格固定，计算中不做 AMR。
+3. Preprocess 重写为通用复形生成与分区工具：读入/生成网格、构建关联表、owner 与别名符号、按进程输出子网格与通信计划。MPI 负载均衡用带权单元图（顶点权 = 单元计算成本，区分流体+电磁与只算电磁的固体壳；边权 = 共享面通信量），并报告各进程负载比与通信量。
+4. 离散保持 DEC：磁场只通过 `B −= dt·d₁(E)` 更新，所有 EMF（理想、Hall、电阻、人工项）都只作为边上的 1-cochain 进入；`d₂d₁=0` 只由关联表保证，对任意单元类型、悬挂点和 MPI 界面成立。粗解转移到细网格时 B 的细化保持每个单元 `d₂B=0`。度量只出现在 Hodge 星、面积矢量、体积和重构里，对偶量保证为正。
+5. Hall：沿用 `α(J×B)`，边上平均与 whistler 扩散改成按边的对偶面份额加权（任意价态），与理想 EMF 共用同一套边装配和同一个 owner；加入随 h² 收紧的 Hall 时间步限制，必要时子循环或半隐式。**Hall 首期留空并记录**（见 `docs/HallTodo.md`）。
+
+## 2. 已确定的决定
+
+| 事项 | 决定 |
+|---|---|
+| 仓库 | 单个新 git 仓库在 `MPCNS_Uns/` 根目录；旧代码原样放 `legacy/`（只读参考，不参与构建） |
+| 应用名 | 求解器 `MercuryUns`，预处理 `Preprocess`（可执行 `mpcns_pre`） |
+| 加密入口 | 两者都要：`mpcns_pre task=refine` 独立步骤，**以及**求解器初始化可调用的库接口 |
+| 加密依据 | 流动指示器（密度、压强、`h|J|/|B|`）与手动区域（box/sphere/shell/cylinder）可单独或组合使用 |
+| 输出文件 | 二进制。内部交换用自描述 UNSBIN；可视化用 VTK XML 二进制（VTU/PVTU/PVD，ParaView/VisIt）。Tecplot 见 `docs/FileFormats.md` |
+| 分区 | 内置 Hilbert/Morton/RCB + 贪心边界精修；METIS 作为可选项（本机没有可用的 METIS 头文件和库） |
+| 语言/依赖 | C++20，MPI（openmpi-5.0.11）；PETSc 3.26 仅在隐式电阻/Hall 半隐式阶段才接入 |
+
+## 3. 目录结构
+
+```
+MPCNS_Uns/
+├─ PLAN.md                    本文件
+├─ CMakeLists.txt  cmake/
+├─ include/uns/  src/uns/     共享库，按职责分目录，依赖单向
+│   ├─ core/        基本类型、Params（setup 文件解析）
+│   ├─ complex/     Incidence、CellComplex、ComplexBuilder、Validate（只含拓扑，不含坐标）
+│   ├─ geometry/    Geometry：面积矢量、体积、对偶份额 w_{e,c}、Hodge 星、几何检查
+│   ├─ generate/    HexMesh → Mesh；盒、立方球壳生成器
+│   ├─ partition/   CellGraph（成本模型）、Partitioner、PartitionReport
+│   ├─ parallel/    LocalMesh、CommPlan、Distributor（子复形、owner、别名符号、通信计划）
+│   ├─ refine/      RefineSpec（区域/指示器）、Refine（接口；网格构造待 M3）
+│   ├─ io/          BinContainer(UNSBIN)、MeshIO、VtkWriter
+│   └─ comm/        Exchanger（MPI：前向拷贝、边归约、边装配）
+├─ Preprocess/                mpcns_pre：generate / inspect / export（refine 待 M3）
+├─ MercuryUns/                求解器：state/ induction/ diagnostics/ hall/(空) fluid/ boundary/ timestep/ io/
+├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh
+├─ docs/                      Conventions.md  FileFormats.md  HallTodo.md
+├─ Run/                       算例（数据不入库）
+└─ legacy/                    MPCNS_Mercury 与旧 Preprocess 的原样拷贝
+```
+
+求解器中旧的结构块模块（`1_grid`、`2_topology`、`3_field`、`4_halo`、`7_metric`、`8_dec`）不再沿用：它们以 `(block,i,j,k)` 和 ghost 层为核心，无法表示实体编号存储。可继承的是物理公式（流体 RHS、Hall 限幅与 taper、偶极子背景、边界条件语义）、PETSc 隐式电阻的结构和算例参数风格，从 `legacy/` 读取移植。
+
+## 4. 关键设计（摘要）
+
+- **复形**：`e2n`（−1 起点/+1 终点）、`f2e`（有序闭环）、`c2f`（外向符号）的带符号 CSR，另有转置表。规范定向由全局节点号推出，各进程无需通信即一致；别名符号仍存表，使导入网格也适用。详见 `docs/Conventions.md`。
+- **Owner**：实体的 owner = 关联单元所属进程中编号最小者。子复形 = owned 单元 + 一层共点邻居，因此 owned 单元的每条边、每个面都在本地看到全部关联单元。
+- **边装配**：每个进程对自己 owned 单元的贡献求部分和，别名边归约到 owner，再广播回所有副本（`Exchanger::assemble_edges`）。理想、Hall、电阻、人工项共用这一条路径，所以同一条边的所有副本拿到相同的 E。
+- **CT**：`faraday_update` 对所有 owned 单元的面做 `B_f −= dt Σ f2e·E`。每个面的两个副本用相同的 E 和相同的规范环顺序，得到相同的更新。浮点下 `d₂B` 保持在圆整误差量级（实测 ~1e-15），不是位级为零；`d₂d₁=0` 本身是关联表上的整数恒等式。
+- **加密**（M3）：每个粗六面体带整数格点 `[0,2^L]³`，粗面/粗边上的点用规范坐标系下的整数键去重，不比较浮点坐标。叶面片若对侧存在更小的面片则让位给它们，粗单元把这些小面片都记作自己的面；每条边在其上的所有节点处剖开。粗 B 转细 B：先把粗面通量按重构场在面片中心的法向值分配并重整化到总和等于粗通量，再对每个被加密的粗单元解一个小的 Hodge 投影使内部各细单元 `d₂B=0`。
+- **Hall**：见 `docs/HallTodo.md`。
+
+## 5. 里程碑与进度
+
+状态：✅ 完成并通过测试　🟡 部分完成　⬜ 未开始
+
+| # | 内容 | 状态 | 说明 |
+|---|---|---|---|
+| M0 | 仓库、legacy 拷贝、CMake 骨架、基线提交 | ✅ | 基线提交 = 旧代码原样拷贝 |
+| M1 | 复形、构建器、验证器、几何/Hodge 星、盒与立方球壳生成器 | ✅ | `test_complex_geometry` |
+| M2 | Preprocess：分区、子复形、owner/别名/通信计划、UNSBIN、VTU、报告 | ✅ | `test_partition` `test_distribute` `test_io` + `check_vtu.py` |
+| M2b | MPI 通信层（前向、边归约、边装配） | ✅ | `test_comm_mpi`（np=1/3/6） |
+| M4a | MercuryUns 骨架：FieldSet、边装配、`B −= dt d₁E`、∇·B 诊断；Hall 空钩子 | ✅ | `tools/run_selftest.sh`：np=1/2/5/8 的 `d₂B` ≤ 1.4e-15，B 校验和一致到 12 位 |
+| M2c | 读入器：旧 plot3d+fvbnd、Gmsh 六面体、原生复形 | ⬜ | 旧 plot3d 读取可从 `legacy/Preprocess` 移植 |
+| M2d | METIS 接入（可选） | ⬜ | 需要你提供 METIS 路径；接口已留（`PartMethod::Metis`） |
+| M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移 | 🟡 | 区域/指示器配置与区域层级已完成（`test_refine_spec`）；网格构造与转移未开始 |
+| M4 | 求解器：流体 FV、重构、时间推进、输出/重启 | ⬜ | 公式取自 legacy 的 FluidRHS |
+| M5 | 理想 MHD + 边界条件 + 固体壳，对照旧 Mercury 的回归 | ⬜ | |
+| M6 | Hall、人工项、电阻、Hall 时间步 | ⬜ | Hall 按用户要求首期留空 |
+| M7 | Hall 子循环（A），必要时半隐式（B） | ⬜ | |
+| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ⬜ | |
+
+### 已验证（以及怎么验证的）
+- 拓扑：`d₁d₀=0`、`d₂d₁=0`（整数精确）、环闭合、面-单元双覆盖符号相反、欧拉数（盒 1，球壳 2）。随机翻转局部边定向后恒等式仍成立。
+- 几何：单元闭合 `|ΣA|/Σ|A|` ~1e-17，体积与全部 Hodge 星为正，对偶面片与边方向同向，`Σ_c w_{e,c}=1`。立方球壳含价态 3 的角点。
+- 分区：Hilbert/Morton/RCB，np=1…16，负载比 ≤ 1.03；精修不增加割量。
+- 子复形：各进程拓扑自洽，owned 数之和等于全局数；发送/接收列表两侧逐项一致；边装配模拟结果等于全局关联单元数。
+- MPI：真实 `mpirun` 下的边装配与面前向拷贝逐项正确。
+- VTU：独立的 Python 解析器重算多面体体积，与写出的体积数组一致到 1e-15。
+
+### 尚未验证 / 已知缺口
+- VTU 在 ParaView 里的实际打开**没有测过**（本机无 ParaView/VTK）；Tecplot 同样没有测过。
+- 理想 EMF 的任意价态推广、流体重构、Hall 都还没写；目前的 EMF 只是自检用的合成贡献。
+- 未做性能测量。
+
+## 6. 构建与运行
+
+```sh
+export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
+cmake -S . -B build && cmake --build build -j
+cd build && ctest                       # 8 个测试
+./build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt output_dir=Run/demo/geometry proc_num=8
+tools/run_selftest.sh build /tmp/uns_selftest      # 生成 + 多进程 CT 自检
+```
+ParaView 打开 `Run/demo/geometry/partition.pvtu`，按 `rank` 着色即可检查分区。
+
+## 7. 风险与待定
+
+- 多面体、非平面面的体积与重构质量需在悬挂网格上重点验证（M3 之后）。
+- 非共形面上的二阶重构与限幅较敏感。
+- 理想 EMF 向任意价态推广需要推导并在价态 4 光滑六面体上与旧公式对照。
+- Hall 的加权 whistler 扩散需要推导加测试；Hall 步长在加密 ≥ 2 层时预计成为瓶颈。
+- 首期加密只做各向同性 2×2×2。

@@ -1,0 +1,8 @@
+//=============================================================================
+// MercuryUns setup
+//=============================================================================
+string geometry_dir   geometry     // directory with part_XXXXX.unsb written by mpcns_pre
+string task           selftest     // selftest | run (run: not implemented yet)
+int    selftest_steps 200
+bool   hall_enabled   0            // Hall is not implemented yet (see docs/HallTodo.md)
+double hall_coef      0.0

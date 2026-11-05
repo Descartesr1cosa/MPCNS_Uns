@@ -1,0 +1,14 @@
+//=============================================================================
+// Refinement setup (task=refine is milestone M3; the keys are parsed today by
+// uns::RefineSpec::from_params and tested by tests/test_refine_spec.cpp)
+//=============================================================================
+int    refine_max_level        3
+bool   refine_balance_2to1     1
+int    refine_solid_max_level  0           // solid shell stays coarse
+// manual regions (units of the mesh, planet radius ~ 1):
+string refine_region_1         box -6 -2 -2 -1 2 2 3         // magnetotail reconnection box, level 3
+string refine_region_2         shell 1.0 1.4 2               // near-planet shell, level 2
+// flow-based indicators evaluated on the coarse solution:
+string refine_indicator_1      current 0.3 2                 // h|J|/|B| > 0.3  -> level 2
+string refine_indicator_2      density 0.5 1                 // h|grad rho|/rho > 0.5 -> level 1
+double refine_budget_cells     0                             // 0 = unlimited
