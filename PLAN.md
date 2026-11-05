@@ -1,6 +1,6 @@
 # MPCNS_Uns — 全非结构 Hall-MHD（水星磁层）方案与进度
 
-最后更新：2026-11-05。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
+最后更新：2026-11-05（M3 完成）。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
 
 ## 1. 目标
 
@@ -35,10 +35,10 @@ MPCNS_Uns/
 │   ├─ generate/    HexMesh → Mesh；盒、立方球壳生成器
 │   ├─ partition/   CellGraph（成本模型）、Partitioner、PartitionReport
 │   ├─ parallel/    LocalMesh、CommPlan、Distributor（子复形、owner、别名符号、通信计划）
-│   ├─ refine/      RefineSpec（区域/指示器）、Refine（接口；网格构造待 M3）
+│   ├─ refine/      RefineSpec（区域/指示器）、Lattice（格点键）、RefineMesh（非共形加密）、Indicators、Transfer（B/U 转移）
 │   ├─ io/          BinContainer(UNSBIN)、MeshIO、VtkWriter
 │   └─ comm/        Exchanger（MPI：前向拷贝、边归约、边装配）
-├─ Preprocess/                mpcns_pre：generate / inspect / export（refine 待 M3）
+├─ Preprocess/                mpcns_pre：generate / inspect / export / refine / demo_fields
 ├─ MercuryUns/                求解器：state/ induction/ diagnostics/ hall/(空) fluid/ boundary/ timestep/ io/
 ├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh
 ├─ docs/                      Conventions.md  FileFormats.md  HallTodo.md
@@ -54,7 +54,7 @@ MPCNS_Uns/
 - **Owner**：实体的 owner = 关联单元所属进程中编号最小者。子复形 = owned 单元 + 一层共点邻居，因此 owned 单元的每条边、每个面都在本地看到全部关联单元。
 - **边装配**：每个进程对自己 owned 单元的贡献求部分和，别名边归约到 owner，再广播回所有副本（`Exchanger::assemble_edges`）。理想、Hall、电阻、人工项共用这一条路径，所以同一条边的所有副本拿到相同的 E。
 - **CT**：`faraday_update` 对所有 owned 单元的面做 `B_f −= dt Σ f2e·E`。每个面的两个副本用相同的 E 和相同的规范环顺序，得到相同的更新。浮点下 `d₂B` 保持在圆整误差量级（实测 ~1e-15），不是位级为零；`d₂d₁=0` 本身是关联表上的整数恒等式。
-- **加密**（M3）：每个粗六面体带整数格点 `[0,2^L]³`，粗面/粗边上的点用规范坐标系下的整数键去重，不比较浮点坐标。叶面片若对侧存在更小的面片则让位给它们，粗单元把这些小面片都记作自己的面；每条边在其上的所有节点处剖开。粗 B 转细 B：先把粗面通量按重构场在面片中心的法向值分配并重整化到总和等于粗通量，再对每个被加密的粗单元解一个小的 Hodge 投影使内部各细单元 `d₂B=0`。
+- **加密**（M3，已实现）：每个粗六面体带整数格点 `[0,2^L]³`，粗面/粗边上的点用规范坐标系下的整数键去重，不比较浮点坐标。叶面片若对侧存在更小的面片则让位给它们，粗单元把这些小面片都记作自己的面；每条边在其上的所有节点处剖开。粗 B 转细 B：先把粗面通量按重构场在面片中心的法向值分配并重整化到总和等于粗通量，再对每个被加密的粗单元解一个小的 Hodge 投影使内部各细单元 `d₂B=0`。
 - **Hall**：见 `docs/HallTodo.md`。
 
 ## 5. 里程碑与进度
@@ -70,12 +70,22 @@ MPCNS_Uns/
 | M4a | MercuryUns 骨架：FieldSet、边装配、`B −= dt d₁E`、∇·B 诊断；Hall 空钩子 | ✅ | `tools/run_selftest.sh`：np=1/2/5/8 的 `d₂B` ≤ 1.4e-15，B 校验和一致到 12 位 |
 | M2c | 读入器：旧 plot3d+fvbnd、Gmsh 六面体、原生复形 | ⬜ | 旧 plot3d 读取可从 `legacy/Preprocess` 移植 |
 | M2d | METIS 接入（可选） | ⬜ | 需要你提供 METIS 路径；接口已留（`PartMethod::Metis`） |
-| M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移 | 🟡 | 区域/指示器配置与区域层级已完成（`test_refine_spec`）；网格构造与转移未开始 |
+| M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移、`task=refine` | ✅ | `test_refine_mesh`、`test_refine_spec`、`tools/run_refine_demo.sh`；求解器初始化调用库接口随 M4 接入 |
 | M4 | 求解器：流体 FV、重构、时间推进、输出/重启 | ⬜ | 公式取自 legacy 的 FluidRHS |
 | M5 | 理想 MHD + 边界条件 + 固体壳，对照旧 Mercury 的回归 | ⬜ | |
 | M6 | Hall、人工项、电阻、Hall 时间步 | ⬜ | Hall 按用户要求首期留空 |
 | M7 | Hall 子循环（A），必要时半隐式（B） | ⬜ | |
 | M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ⬜ | |
+
+### M3 的实现要点与限制
+- 每个粗六面体内是八叉树；叶子按「手动区域（叶子的角点或中心落入区域）」与「粗单元级的指示器最小层级」决定是否细分。粗单元必须是拓扑六面体（否则报错）。
+- 悬挂点节点用整数格点键去重，不比较浮点坐标；面 = 两侧面片的公共加密；每条边在其上所有节点处剖开（用中点是否存在逐级二分查找）。粗单元自然成为多面体，实测最多 15–21 个面。
+- 面平衡（相邻单元层级差 ≤ 1）迭代到收敛；边/点邻居的层级差不强制限制（拓扑上任意层级差都有效）。
+- 新节点坐标：三线性插值；`refine_spherical_snap=1` 时保持径向插值（球壳几何）。
+- B：粗面通量按粗单元重构向量 `b·A` 分配到面片，再把差额按面积补齐，使面片通量之和严格等于粗通量；粗单元内部各细单元用最小范数投影（CG）加生成树扫描使 `d₂B=0`。
+- U：粗单元的限幅线性（Barth–Jespersen）重构，并扣除体积加权平均增量，使每个粗单元内的细单元积分保持不变（以细网格体积计）。
+- 预算：`refine_budget_cells>0` 时按 ×1.5 放宽指示器阈值；手动区域不放宽，若区域本身超预算会给出警告。
+- 限制：只支持六面体粗单元；只做各向同性 2×2×2 剖分；粗解的 B 面通量重构用单元级常向量（面片通量分配为一阶精度，但散度严格保持）。
 
 ### 已验证（以及怎么验证的）
 - 拓扑：`d₁d₀=0`、`d₂d₁=0`（整数精确）、环闭合、面-单元双覆盖符号相反、欧拉数（盒 1，球壳 2）。随机翻转局部边定向后恒等式仍成立。
@@ -83,11 +93,17 @@ MPCNS_Uns/
 - 分区：Hilbert/Morton/RCB，np=1…16，负载比 ≤ 1.03；精修不增加割量。
 - 子复形：各进程拓扑自洽，owned 数之和等于全局数；发送/接收列表两侧逐项一致；边装配模拟结果等于全局关联单元数。
 - MPI：真实 `mpirun` 下的边装配与面前向拷贝逐项正确。
-- VTU：独立的 Python 解析器重算多面体体积，与写出的体积数组一致到 1e-15。
+- VTU：独立的 Python 解析器重算多面体体积，与写出的体积数组一致到 1e-15（加密网格含 15 面多面体，4e-16）。
+- 加密拓扑：盒（均匀、单个深层单元、随机层级、区域穿过粗单元）和带固体壳的球面壳（含价态 3 的角点）上，`d₁d₀=0`、`d₂d₁=0`、环闭合、面双覆盖符号相反、欧拉数、体积为正、单元闭合均通过；平面几何下加密前后总体积相等到 1e-12；边界面标记保留。
+- B 转移：随机 `B=d₁A` 的粗解转移后，每个细单元的 `|d₂B|/Σ|B_f|` ≤ 1.3e-14（演示算例 138k 细单元为 4.2e-14）；面片通量和等于粗通量到 1e-15；均匀场在平面网格上被精确复现（1e-15）。
+- U 转移：每个粗单元内细单元的体积平均等于粗值到 1e-14。
+- 非共形、8 进程分区的细网格上，MercuryUns 的 CT 自检 `d₂B` 仍为 1.3e-15。
 
 ### 尚未验证 / 已知缺口
 - VTU 在 ParaView 里的实际打开**没有测过**（本机无 ParaView/VTK）；Tecplot 同样没有测过。
 - 理想 EMF 的任意价态推广、流体重构、Hall 都还没写；目前的 EMF 只是自检用的合成贡献。
+- 指示器（密度/压强梯度、`h|J|/|B|`）只用合成的粗解测过管线，没有用真实的粗解校准阈值。
+- 求解器初始化时直接调用加密库（而不是独立的 `task=refine` 步骤）还没接入；库接口 `build_refined_mesh / transfer_B / prolong_cells` 已经可用，随 M4 一起接。
 - 未做性能测量。
 
 ## 6. 构建与运行
@@ -95,9 +111,10 @@ MPCNS_Uns/
 ```sh
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j
-cd build && ctest                       # 8 个测试
+cd build && ctest                       # 9 个测试
 ./build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt output_dir=Run/demo/geometry proc_num=8
 tools/run_selftest.sh build /tmp/uns_selftest      # 生成 + 多进程 CT 自检
+tools/run_refine_demo.sh build /tmp/uns_demo       # 粗网格 → 合成粗解 → 加密 → 分区 → 细网格 CT 自检
 ```
 ParaView 打开 `Run/demo/geometry/partition.pvtu`，按 `rank` 着色即可检查分区。
 
@@ -108,3 +125,4 @@ ParaView 打开 `Run/demo/geometry/partition.pvtu`，按 `rank` 着色即可检�
 - 理想 EMF 向任意价态推广需要推导并在价态 4 光滑六面体上与旧公式对照。
 - Hall 的加权 whistler 扩散需要推导加测试；Hall 步长在加密 ≥ 2 层时预计成为瓶颈。
 - 首期加密只做各向同性 2×2×2。
+- 加密网格很快变大（演示中 3840 → 2.3 万；区域取 level 3 时 → 13.8 万），需要用预算和区域大小控制。

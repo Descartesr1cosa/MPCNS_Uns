@@ -19,3 +19,10 @@ Not verified here.  Tecplot's native `.szplt` needs the TecIO library (not insta
 VTU in Tecplot 360 depends on its version.  Plan (M8): add a Tecplot-friendly writer after testing against
 a real Tecplot installation — candidates: `.szplt` via TecIO (supports polyhedra), or EnSight Gold binary
 (nfaced), plus an option that decomposes polyhedra into tetrahedra for tools without polyhedron support.
+
+## Coarse / restart solution (`*_fields.unsb`)
+UNSBIN written by `io::write_fields`, entity-numbered in the *global* numbering of the complex named by the
+stored topology hash (the refinement checks it).  Record names used by `mpcns_pre task=refine`:
+`B` (face, 1: flux in the canonical face orientation), `rho` and `p` (cell, 1), `B_cell` and `J_cell` (cell, 3),
+and any other cell field (`ncomp` values per cell, prolonged conservatively).  The fine file has the same layout
+in the global numbering of the refined complex.

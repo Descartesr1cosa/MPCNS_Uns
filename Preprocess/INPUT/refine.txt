@@ -1,14 +1,20 @@
 //=============================================================================
-// Refinement setup (task=refine is milestone M3; the keys are parsed today by
-// uns::RefineSpec::from_params and tested by tests/test_refine_spec.cpp)
+// Refinement setup.   usage (after the coarse run wrote its solution):
+//   mpcns_pre setup.txt refine.txt-keys... task=refine coarse_dir=<coarse geometry dir> \
+//             coarse_fields=<coarse_fields.unsb> output_dir=<fine geometry dir> proc_num=N
+// Without a solution file only the manual regions act.  Until the solver writes real coarse
+// solutions, `task=demo_fields` creates a synthetic one (dipole-like B = d1(A), tail density bump,
+// current sheet) to exercise the pipeline.
+// A leaf of an (indicator-)refined coarse cell is split further when any of its corners or its
+// centre lies in a region; the face balance (neighbour levels differ by at most 1) is enforced.
 //=============================================================================
 int    refine_max_level        3
-bool   refine_balance_2to1     1
 int    refine_solid_max_level  0           // solid shell stays coarse
-// manual regions (units of the mesh, planet radius ~ 1):
-string refine_region_1         box -6 -2 -2 -1 2 2 3         // magnetotail reconnection box, level 3
-string refine_region_2         shell 1.0 1.4 2               // near-planet shell, level 2
-// flow-based indicators evaluated on the coarse solution:
-string refine_indicator_1      current 0.3 2                 // h|J|/|B| > 0.3  -> level 2
-string refine_indicator_2      density 0.5 1                 // h|grad rho|/rho > 0.5 -> level 1
-double refine_budget_cells     0                             // 0 = unlimited
+bool   refine_spherical_snap   1           // keep radial interpolation of new nodes (shell geometry)
+// manual regions (mesh units, planet radius ~ 1):
+string refine_region_1         box -7 -2.5 -2.5 -1.5 2.5 2.5 2        // magnetotail reconnection box, level 2
+string refine_region_2         shell 1.0 1.6 1                        // near-planet shell, level 1
+// flow-based indicators evaluated on the coarse solution (h = 6V / sum|A|):
+string refine_indicator_1      current 3.0 2                          // h|J|/|B| > 3  -> level 2
+string refine_indicator_2      density 0.5 1                          // h|grad rho|/rho > 0.5 -> level 1
+double refine_budget_cells     0                                      // >0: relax indicator thresholds until the fine mesh fits

@@ -9,4 +9,8 @@ namespace pre
 int run_generate(const uns::Params &p);
 int run_inspect(const uns::Params &p);
 int run_export(const uns::Params &p);
+// task = refine      : coarse complex (+ coarse solution) -> refined complex, transferred B/U, new partition
+// task = demo_fields : synthetic coarse solution for exercising `refine` (until the solver writes real ones)
+int run_refine(const uns::Params &p);
+int run_demo_fields(const uns::Params &p);
 } // namespace pre
