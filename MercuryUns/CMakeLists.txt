@@ -5,6 +5,15 @@ add_library(mercury_core STATIC
     induction/Faraday.cpp
     induction/EdgeEMF.cpp
     induction/IdealEMF.cpp
+    induction/Current.cpp
+    physics/Scales.cpp
+    Config.cpp
+    boundary/BoundaryInfo.cpp
+    fluid/Reconstruction.cpp
+    fluid/FluidRHS.cpp
+    initial/Initial.cpp
+    io/GlobalFields.cpp
+    driver/Solver.cpp
     diagnostics/DivB.cpp
     hall/HallEMF.cpp)
 uns_target_defaults(mercury_core)

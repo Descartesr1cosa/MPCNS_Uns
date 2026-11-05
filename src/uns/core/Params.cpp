@@ -50,7 +50,10 @@ void Params::set_override(const std::string &a)
 std::string Params::get_string(const std::string &k, const std::string &d) const
 {
     auto it = kv_.find(k);
-    return it == kv_.end() ? d : it->second;
+    if (it == kv_.end()) return d;
+    const std::string &v = it->second;
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') return v.substr(1, v.size() - 2); // "" = empty string
+    return v;
 }
 int Params::get_int(const std::string &k, int d) const
 {

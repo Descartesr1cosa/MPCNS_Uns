@@ -215,7 +215,8 @@ int run_refine(const Params &p)
     {
         std::uint64_t h = 0;
         for (auto &f : io::read_fields(ffile, &h)) fields[f.name] = std::move(f);
-        if (h != topology_hash(coarse.cx)) throw std::runtime_error("coarse fields do not belong to the coarse complex (topology hash differs)");
+        if (h != 0 && h != topology_hash(coarse.cx)) throw  // h == 0: written by the solver, which cannot hash the global complex
+             std::runtime_error("coarse fields do not belong to the coarse complex (topology hash differs)");
         if (fields.count("rho")) sol.rho = fields["rho"].values;
         if (fields.count("p")) sol.p = fields["p"].values;
         auto vec3 = [&](const char *n, std::vector<Vec3> &v) {

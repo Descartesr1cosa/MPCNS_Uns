@@ -1,6 +1,6 @@
 # MPCNS_Uns — 全非结构 Hall-MHD（水星磁层）方案与进度
 
-最后更新：2026-11-05（M3 完成，M5a 理想 EMF 完成）。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
+最后更新：2026-11-05（M3、M5a、M4 简单版求解器完成，粗解→加密→续算全流程打通）。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
 
 ## 1. 目标
 
@@ -39,7 +39,7 @@ MPCNS_Uns/
 │   ├─ io/          BinContainer(UNSBIN)、MeshIO、VtkWriter
 │   └─ comm/        Exchanger（MPI：前向拷贝、边归约、边装配）
 ├─ Preprocess/                mpcns_pre：generate / inspect / export / refine / demo_fields
-├─ MercuryUns/                求解器：state/ induction/ diagnostics/ hall/(空) fluid/ boundary/ timestep/ io/
+├─ MercuryUns/                求解器：physics/ fluid/ induction/ boundary/ initial/ driver/ io/ diagnostics/ hall/(空)
 ├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh
 ├─ docs/                      Conventions.md  FileFormats.md  HallTodo.md
 ├─ Run/                       算例（数据不入库）
@@ -72,11 +72,11 @@ MPCNS_Uns/
 | M2d | METIS 接入（可选） | ⬜ | 需要你提供 METIS 路径；接口已留（`PartMethod::Metis`） |
 | M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移、`task=refine` | ✅ | `test_refine_mesh`、`test_refine_spec`、`tools/run_refine_demo.sh`；求解器初始化调用库接口随 M4 接入 |
 | M5a | 理想 EMF 推广到任意价态边，并与旧公式对照 | ✅ | `docs/IdealEMF.md`、`test_ideal_emf`（np=1/4/7）；价态 3–8、悬挂点多面体、分区无关 |
-| M4 | 求解器：流体 FV、重构、时间推进、输出/重启 | ⬜ | 公式取自 legacy 的 FluidRHS |
-| M5 | 理想 MHD + 边界条件 + 固体壳，对照旧 Mercury 的回归 | ⬜ | 理想 EMF 部分已在 M5a 完成 |
+| M4 | 求解器：流体 FV、二阶重构、SSP-RK2、CT、边界、输出/重启 | ✅ | 简单版：`docs/Solver.md`、`test_solver`、`tools/run_pipeline_demo.sh`；未含电离/阻力/双极/电阻/Hall |
+| M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | ⬜ | 理想 EMF（M5a）与基本边界已完成；固体壳目前冻结 |
 | M6 | Hall、人工项、电阻、Hall 时间步 | ⬜ | Hall 按用户要求首期留空 |
 | M7 | Hall 子循环（A），必要时半隐式（B） | ⬜ | |
-| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ⬜ | |
+| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | 🟡 | 全流程已在合成算例上打通（`tools/run_pipeline_demo.sh`）；Tecplot 输出、性能与真实算例未做 |
 
 ### M3 的实现要点与限制
 - 每个粗六面体内是八叉树；叶子按「手动区域（叶子的角点或中心落入区域）」与「粗单元级的指示器最小层级」决定是否细分。粗单元必须是拓扑六面体（否则报错）。
@@ -99,14 +99,16 @@ MPCNS_Uns/
 - B 转移：随机 `B=d₁A` 的粗解转移后，每个细单元的 `|d₂B|/Σ|B_f|` ≤ 1.3e-14（演示算例 138k 细单元为 4.2e-14）；面片通量和等于粗通量到 1e-15；均匀场在平面网格上被精确复现（1e-15）。
 - U 转移：每个粗单元内细单元的体积平均等于粗值到 1e-14。
 - 非共形、8 进程分区的细网格上，MercuryUns 的 CT 自检 `d₂B` 仍为 1.3e-15。
+- 求解器（`docs/Solver.md`）：均匀流在悬挂点多面体网格上保持到 1e-16；密度波二阶（阶数 2.11、1.99）；Sod 激波管 L1 误差 3.5e-3；Alfvén 波包速度、幅值、符号正确（0.0249 对 0.0250，位置 2.975 对 3.0）；水星壳网格 np=4 与串行 U 差 4e-16、Phi 差 3e-14；整条流程（粗网格 1728 → 细网格 15322，t=6 续算到 t=8，2452 步，8 进程）∇·B ≤ 3e-14。
 - 理想 EMF（`docs/IdealEMF.md`）：规则六面体上随机 u、B 与旧公式的转录逐边相差 ≤ 4e-15（450 条内部边）；均匀 B 的迎风项在价态 3、5、6、8 的边和悬挂点多面体上为 1e-14 以下；均匀 u×B 在平面网格上精确；20 步 CT 后 np=1/4/7 与串行的 B 相差 ≤ 9e-16，∇·B ≤ 2e-15。测试中发现并修掉了 3×3 正则化求解沿边方向灾难性相消导致结果依赖求和顺序的问题（改为边法平面内的 2×2 求解）。
 
 ### 尚未验证 / 已知缺口
 - VTU 在 ParaView 里的实际打开**没有测过**（本机无 ParaView/VTK）；Tecplot 同样没有测过。
-- 流体重构、Hall 还没写；`MercuryUns` 的 `task=selftest` 仍用合成 EMF 做 CT 自检，理想 EMF 只在 `test_ideal_emf` 里与 CT 联合测试过。
+- Hall 还没写（空钩子）；电离、阻力、双极电场、电阻固体壳也没写。`task=selftest` 仍用合成 EMF，真实 EMF 已在 `task=run` 中使用。
+- 求解器只验证了数值性质（二阶、激波、Alfvén 波、分区无关、∇·B），**没有**与旧 Mercury 的物理结果对照。
 - 理想 EMF 的限制见 `docs/IdealEMF.md`：弯曲面一阶一致、域边界边上的迎风项不严格为零、极不规则边上权重 ω 可能变小/变负（无限幅器）。
 - 指示器（密度/压强梯度、`h|J|/|B|`）只用合成的粗解测过管线，没有用真实的粗解校准阈值。
-- 求解器初始化时直接调用加密库（而不是独立的 `task=refine` 步骤）还没接入；库接口 `build_refined_mesh / transfer_B / prolong_cells` 已经可用，随 M4 一起接。
+- 求解器初始化时直接调用加密库（而不是独立的 `task=refine` 步骤）还没接入；目前是 `mpcns_pre task=refine` + 求解器 `init_fields=` 两步，库接口 `build_refined_mesh / transfer_B / prolong_cells` 可直接被求解器调用。
 - 未做性能测量。
 
 ## 6. 构建与运行
@@ -114,10 +116,11 @@ MPCNS_Uns/
 ```sh
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j
-cd build && ctest                       # 9 个测试
+cd build && ctest                       # 14 个测试
 ./build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt output_dir=Run/demo/geometry proc_num=8
 tools/run_selftest.sh build /tmp/uns_selftest      # 生成 + 多进程 CT 自检
 tools/run_refine_demo.sh build /tmp/uns_demo       # 粗网格 → 合成粗解 → 加密 → 分区 → 细网格 CT 自检
+tools/run_pipeline_demo.sh build /tmp/uns_pipe     # 粗网格 → 粗解求解 → 加密 → 细网格续算（约 30 s，最多 8 进程）
 ```
 ParaView 打开 `Run/demo/geometry/partition.pvtu`，按 `rank` 着色即可检查分区。
 

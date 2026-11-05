@@ -21,6 +21,17 @@ if(TARGET mercury_core)
   endforeach()
 endif()
 
+if(TARGET mercury_core)
+  add_executable(test_solver test_solver.cpp)
+  uns_target_defaults(test_solver)
+  target_include_directories(test_solver PRIVATE ${PROJECT_SOURCE_DIR}/MercuryUns)
+  target_link_libraries(test_solver PRIVATE mercury_core uns_refine uns_partition uns_generate)
+  foreach(n 1 4)
+    add_test(NAME test_solver_np${n}
+             COMMAND ${MPIEXEC_EXECUTABLE} --allow-run-as-root --oversubscribe ${MPIEXEC_NUMPROC_FLAG} ${n} $<TARGET_FILE:test_solver>)
+  endforeach()
+endif()
+
 if(TARGET uns_comm)
   add_executable(test_comm_mpi test_comm_mpi.cpp)
   uns_target_defaults(test_comm_mpi)

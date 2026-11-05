@@ -1,0 +1,95 @@
+#pragma once
+// Two-ion MHD solver on the signed cell complex: second-order finite volume for the fluid, constrained transport
+// for B (B -= dt d1(E), E an edge 1-cochain assembled through the owner), SSP-RK2 in time.
+//
+// One stage:  forward halo (U cells, B faces) -> derived fields (primitives, cell B, u+, J) -> limited gradients
+//             (forwarded) -> fluid fluxes + sources -> ideal EMF on owned edges -> EdgeEMF::finish (copy to aliases).
+// The Hall term is not part of this version (hall/HallEMF.h is a no-op hook).
+#include <mpi.h>
+
+#include <string>
+#include <vector>
+
+#include "Config.h"
+#include "boundary/BoundaryInfo.h"
+#include "fluid/FluidRHS.h"
+#include "fluid/Reconstruction.h"
+#include "hall/HallEMF.h"
+#include "induction/EdgeEMF.h"
+#include "induction/IdealEMF.h"
+#include "uns/comm/Exchanger.h"
+#include "uns/geometry/Geometry.h"
+#include "uns/parallel/LocalMesh.h"
+
+namespace mercury
+{
+struct State
+{
+    std::vector<double> U[2]; // H+, Na+ conservative variables, 5 per local cell
+    std::vector<double> Phi;  // induced magnetic flux per local face (canonical orientation)
+};
+
+struct Diagnostics
+{
+    double time = 0, dt = 0;
+    long step = 0;
+    double div_b = 0;          // max over cells of |d2 B| / sum|B_f|  (global)
+    double min_rho = 0, min_p = 0; // global minima over fluid cells (H+)
+    double mass_H = 0, mass_Na = 0;
+};
+
+class Solver
+{
+public:
+    Solver(MPI_Comm comm, const uns::LocalMesh &lm, const Config &cfg);
+    void initialize();              // initial state / background / boundary data (collective)
+    void run();                     // time loop until t_end or max_steps, with logging and output
+    double step(double dt_max);     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
+    Diagnostics diagnostics();      // collective
+    void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
+    void write_global_fields(const std::string &path); // collective: coarse solution / restart file (rank 0 writes)
+
+    const State &state() const { return s_; }
+    State &state() { return s_; }
+    const uns::LocalMesh &mesh() const { return lm_; }
+    const uns::Geometry &geometry() const { return geo_; }
+    double time() const { return time_; }
+    long steps() const { return nstep_; }
+    // derived cell fields of the last prepared state (3 per cell / 5 per cell)
+    const std::vector<double> &prim(int species) const { return W_[species]; }
+    const std::vector<double> &B_induced_cell() const { return Bind_; }
+    const std::vector<double> &B_total_cell() const { return Btot_; }
+    const std::vector<double> &current_cell() const { return J_; }
+
+private:
+    struct Rhs { std::vector<double> dU[2]; std::vector<double> E; };
+    void prepare(State &s);                      // halo exchange + derived fields
+    double local_dt() const;
+    void rhs(State &s, Rhs &r);                  // requires prepare(s)
+    void advance(const State &base, const Rhs &r, double dt, State &out);
+    void enforce_floors(State &s) const;
+    Diagnostics collect(double dt);
+    void log(const Diagnostics &d) const;
+
+    MPI_Comm comm_;
+    int rank_ = 0;
+    const uns::LocalMesh &lm_;
+    Config cfg_;
+    uns::Geometry geo_;
+    uns::comm::Exchanger ex_;
+    EdgeEMF emf_;
+    BoundaryInfo bc_;
+    Stencil stencil_;
+    std::vector<char> active_;
+    Prim fs_[2];
+
+    State s_, s1_, s2_;
+    Rhs r0_, r1_;
+    std::vector<double> PhiAdd_, BaddCell_;
+    std::vector<double> W_[2], grad_[2], uplus_, Bind_, Btot_, J_, PhiTot_;
+    double time_ = 0;
+    long nstep_ = 0;
+    std::vector<std::pair<double, std::string>> pvd_;
+    bool initialized_ = false;
+};
+} // namespace mercury

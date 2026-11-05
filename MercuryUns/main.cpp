@@ -7,7 +7,9 @@
 #include <stdexcept>
 #include <string>
 
+#include "Config.h"
 #include "diagnostics/DivB.h"
+#include "driver/Solver.h"
 #include "hall/HallEMF.h"
 #include "induction/EdgeEMF.h"
 #include "induction/Faraday.h"
@@ -92,7 +94,13 @@ int main(int argc, char **argv)
         if (!t.ok) throw std::runtime_error("invalid local complex: " + t.summary());
         const std::string task = p.get_string("task", "selftest");
         if (task == "selftest") rc = selftest(MPI_COMM_WORLD, lm, p);
-        else throw std::runtime_error("task '" + task + "' is not implemented yet (see PLAN.md, milestone M4+)");
+        else if (task == "run")
+        {
+            mercury::Solver solver(MPI_COMM_WORLD, lm, mercury::Config::from_params(p));
+            solver.initialize();
+            solver.run();
+        }
+        else throw std::runtime_error("task '" + task + "' is not implemented yet (selftest | run)");
     }
     catch (const std::exception &e)
     {
