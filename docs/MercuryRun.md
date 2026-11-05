@@ -21,6 +21,13 @@ without the Hall contribution to the EMF, with the fluid/solid load imbalance ta
 
 All 14 unit/regression tests pass (`ctest`), including the earlier solver tests (the IMF now lives in the background field).
 
+## Result with the first-order scheme (second_order=0)
+Mesh `mercury_mesh.txt` (24192 cells, `cs_r_stretch=1.07`), 28 ranks, parameters of `mercury.txt`, `second_order=0`:
+**reaches t = 25 stably** in 2 min 23 s (12190 steps, dt ~ 2e-3, divB <= 7.5e-14, min rho_H 0.033, min p_H 2.6e-3, Na+ mass 3.44 and growing,
+H mass 3314 -> 3400). Command: add `second_order=0 output_step=5000` to the resume command below. Not yet analysed: the subsolar magnetopause
+stand-off (the sampled x-axis profile still shows slow dense plasma, |u| < 0.3, down to the surface — the dayside pile-up / Na+ loading looks
+strong and has not been checked against the legacy result), load balance, a comparison with MPCNS_Mercury output.
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the calibration *task* (fit cost_fluid / cost_solid from `Solver::profile()` over the ranks of a deliberately unbalanced
