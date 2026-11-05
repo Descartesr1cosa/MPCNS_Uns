@@ -61,6 +61,11 @@ public:
     double step(double dt_max);     // dispatches on Config::steady / Config::time_order
     double step_pseudo();           // local pseudo-time step (steady mode): cell steps dtc, edge steps dte = min over the cells at the edge
     double step_first_order(double dt_max);  // forward Euler fluid + semi-implicit induction (Hall, resistivity) with E as the unknown     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
+    // ---- B-only iteration with frozen fluid (prototype of the B multigrid, docs/Multigrid.md section 11).  Uniform step dt for every edge,
+    //      so the fixed point is exactly d1 E = 0.  Serial use (one rank) in the prototype.
+    double b_dt();                                                       // CFL step of the (frozen) fluid state, global minimum
+    double b_smooth(double dt, const std::vector<double> *g = nullptr);  // one step Phi <- S(Phi) + dt g (g: face cochain, forcing of the FAS coarse level); returns |d1E|/|Phi_tot|
+    void b_rate(double dt, std::vector<double> &rate);                   // rate = (S(Phi) - Phi)/dt per local face, Phi unchanged
     Diagnostics diagnostics();      // collective
     void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
     // Collective: gathers the per-rank timings / entity counts of the time loop, fits a fluid/solid/communication cost model by
@@ -128,6 +133,7 @@ private:
     double dtc_min_ = 0, dtc_max_ = 0;
     double res_loc_[8] = {0, 0, 0, 0, 0, 0, 0, 0};  // local sums of the last step: sum V (dU0_H/dt)^2, sum V U0_H^2, same for Na, sum (dPhi/dt)^2, sum Phi^2
     void mg_correct_();                         // one FAS coarse-grid correction of U (steady mode, mg_levels > 1)
+    bool b_only_ = false;                       // rhs(): skip the fluid part (B-only prototype)
     std::unique_ptr<Multigrid> mg_;
     double mg_wall_ = 0;
     void smooth_dt_(int sweeps);                // gradient limiter of dtc_ (lts_smooth), forwards dtc_

@@ -347,3 +347,36 @@ Reading: aligning to 8-cell blocks (K = 1, one multigrid level below the base me
 (blocky domains); 64-cell blocks (K = 2) cost 7 % at 7–12 ranks, 18 % at 28 ranks and 61 % at 56 ranks on the refined mesh, because a refined 64-cell block carries up to 64 × 64 fine cells and the
 granularity (≈ 350 blocks of very unequal weight) is too coarse.  Recommendation: K ≤ 1 for the production partition (56 ranks), K = 2 only up to ≈ 12–28 ranks; the granularity problem would be
 reduced by a finer weight model of the blocks (not tried) or by letting the refined region leave the block-aligned rule (levels below the base mesh then live on fewer ranks).
+
+### 11.2 Two-level B prototype with frozen fluid (`mg_b_proto`, run 2026-11-05)
+
+Program: `MercuryUns/bproto.cpp` (serial, one rank), new `Solver::b_dt / b_smooth / b_rate` (B-only step; fluid frozen; the same induction step as the pseudo-time solver — ideal + ambipolar EMF, implicit
+resistive shell — with **one uniform step per level**, so the fixed point is exactly $d_1E=0$).  Hall term off (it costs 2× and is a ~1 % effect here).
+Levels: coarse $C$ = base mesh (3024 cells, `cs_ncube=6, cs_nr=14, cs_nsolid=2`, stretch 1.15), fine $F$ = uniform 2×2×2 octree refinement of $C$ with spherical snap (24192 cells).
+The fluid state is the pseudo-time steady state of $C$ (2500 LTS iterations, res_H 1e-10), prolonged piecewise constant to $F$ and kept frozen on both levels; induced B starts from zero on both.
+FAS cycle for the flux (section 4.3 transposed to $\Phi$): $\nu_1$ fine smoothing steps; fine rate $r_F=(S_F(\Phi)-\Phi)/\Delta\tau_F$; $\Phi_C^0=R\Phi_F$ with $R$ = **sum of the child face fluxes** (sign by the area vectors);
+forcing $g=Rr_F-r_C(\Phi_C^0)$ (it is $d_2$-free because $R$ commutes with $d_2$); $\nu_c$ coarse steps $\Phi_C\leftarrow S_C(\Phi_C)+\Delta\tau_C g$ with the coarse CFL step ($\Delta\tau_C/\Delta\tau_F=2.68$);
+correction $P(\Phi_C-\Phi_C^0)$ with $P$ = `transfer_B` (exact $d_2=0$ on every fine cell, $RP=\mathrm{id}$), added with relaxation $\omega$.  Residual `res_B` = $\|d_1E\|/\|\Phi_{tot}\|$ of the last fine step.
+
+Result (fine steps = smoothing steps on $F$; wall time on one core, includes the 1 fine + 1 coarse rate evaluation and one `transfer_B` per cycle; res_B at the same number of fine steps):
+
+| fine steps | plain (uniform step, R = 1) | mgA ($\nu_1=5,\nu_c=5$) | **mgB ($\nu_1=10,\nu_c=10$)** | mgC (5, 5, $\omega$=0.5) | mgD (5, 20) |
+|---|---|---|---|---|---|
+| 200 | 58.9 s / 0.1827 | 119.8 s / 0.1815 | 98.7 s / 0.1814 | 111.6 s / 0.1767 | 139.9 s / 0.1950 |
+| 600 | 157.6 s / 0.1610 | 331.5 s / 0.1475 | 273.5 s / 0.1478 | 312.4 s / 0.1568 | diverges (6.0) |
+| 1000 | 255.1 s / 0.1443 | 512.9 s / 0.1172 | 427.7 s / 0.1167 | 490.6 s / 0.1234 | |
+| 1400 | 349.2 s / 0.1257 | 652.8 s / 0.1035 | 563.8 s / 0.1029 | 625.1 s / 0.1059 | |
+| 2000 | 481.4 s / 0.1055 | | 725.7 s / 0.0894 | | |
+
+* Same residual after fewer fine steps: mgB reaches 0.1055 after ≈ 1400 fine steps instead of 2000 (**≈ 1.4–1.7× fewer iterations**, 1.9× at 800–1000 steps), but the wall time is **not** reduced (≈ 540 s vs 481 s):
+  the two rate evaluations (each a full step) and `transfer_B` cost as much as the saved steps.  Coarse relaxation 0.5 is worse, more coarse steps ($\nu_c$ = 20) diverge.
+* The iteration is still far from converged after 2000 steps (res_B 0.1 → needs ~1e-6): with a uniform step the fixed-point iteration for B in a frozen flow crawls.
+
+**Why the gain is bounded (analysis).**  With the fluid frozen the B equation is hyperbolic (advection by $u$ with the stiff resistive shell treated implicitly): information moves one cell per step at most, so the number of
+steps to renew the field across the domain is $L/(u\,\Delta\tau)$ with $\Delta\tau=\Delta\tau_{\min}$ set by the smallest, most strongly magnetised cells (here 2.2e-3: ≈ 6000 steps for L = 13, u = 1).
+A coarse level lets the long waves travel with its own CFL step, so the gain per level is at most $\Delta\tau_C/\Delta\tau_F$ (= 2.68 here; measured 1.4–1.9×).  This is the known limit of multigrid for
+hyperbolic problems; it is the same reason why the local pseudo time was so effective for the *fluid* (steps ×250 in the far field) and why the per-edge step is what made B fast but wrong.
+A hierarchy of $m$ levels can give at most $\sim 2.7^{\,m-1}$ (≈ 20× for 4 levels), but each extra level needs the structured coarsening of the base mesh and costs the same overheads.
+
+**Conclusion of the two-level experiment:** the uniform-step B multigrid is exact (fixed point $d_1E=0$, $d_2=0$ preserved to round-off through $R$ and `transfer_B`) but gives ≈ 1.5× fewer iterations and no wall-time gain with two levels;
+the expected benefit with more levels is bounded by the CFL ratio of the levels.  Cheaper variants to try next: use the rate of the last smoothing step instead of a separate evaluation, a cheaper $P$ (local, linear) instead of the CG inside `transfer_B`, 3–4 levels.

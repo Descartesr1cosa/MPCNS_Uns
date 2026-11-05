@@ -129,7 +129,7 @@ double Solver::local_dt() const
 void Solver::rhs(State &s, Rhs &r, bool with_emf)
 {
     const CellComplex &cx = lm_.mesh.cx;
-    for (int k = 0; k < 2; ++k)
+    for (int k = 0; k < 2 && !b_only_; ++k)
     {
         if (cfg_.second_order)
         {
@@ -142,7 +142,7 @@ void Solver::rhs(State &s, Rhs &r, bool with_emf)
     }
     SourceFields sf;
     sf.photo = photo_.data(); sf.vst = vst_.data(); sf.dpe = dpe_.data();
-    for (int k = 0; k < 2; ++k)
+    for (int k = 0; k < 2 && !b_only_; ++k)
         add_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), sf, dt_cur_, r.dU[k].data(), cfg_.steady ? dtc_.data() : nullptr);
 
     if (!with_emf) return;
@@ -510,6 +510,60 @@ double Solver::step(double dt_max)
     ++nstep_;
     wall_s_ += MPI_Wtime() - t_start;
     return gdt;
+}
+
+// ---------------------------------------------------------------------------------------------- B-only iteration (frozen fluid)
+double Solver::b_dt()
+{
+    prepare(s_);
+    double g = local_dt();
+    ex_.allreduce(&g, 1, MPI_MIN);
+    return g;
+}
+
+double Solver::b_smooth(double dt, const std::vector<double> *gF)
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    prepare(s_);
+    dt_cur_ = dt;
+    b_only_ = true;
+    rhs(s_, r0_);
+    b_only_ = false;
+    std::vector<double> E = r0_.E;
+    if (ind_.active())
+    {
+        std::vector<double> ne(cx.n_cells(), 0.0);
+        for (Id c = 0; c < cx.n_cells(); ++c)
+            if (cx.cell_material[c] == kFluid) ne[c] = cfg_.sc.numinfo(W_[0][5 * static_cast<std::size_t>(c)], W_[1][5 * static_cast<std::size_t>(c)]).ne_eff;
+        ind_.set_frozen_state(Btot_.data(), ne.data());
+        std::vector<char> dir(cx.n_edges(), 0);
+        for (Id e = 0; e < cx.n_edges(); ++e) dir[e] = bc_.edge_mode[e] == 2;
+        double res = 0;
+        cg_total_ += ind_.solve(s_.Phi.data(), r0_.E.data(), dir, dt, E.data(), &res);
+    }
+    double num = 0, den = 0;
+    for (Id f = 0; f < cx.ent[2].n_owned; ++f)
+    {
+        double circ = 0;
+        for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) circ += cx.f2e.sgn[k] * E[cx.f2e.idx[k]];
+        num += circ * circ; den += PhiTot_[f] * PhiTot_[f];
+    }
+    double sums[2] = {num, den};
+    MPI_Allreduce(MPI_IN_PLACE, sums, 2, MPI_DOUBLE, MPI_SUM, comm_);
+    faraday_update(cx, active_, E.data(), s_.Phi.data(), dt);
+    if (gF)
+        for (Id f = 0; f < cx.n_faces(); ++f)
+            if (active_[f]) s_.Phi[f] += dt * (*gF)[f];
+    return den > 0 ? std::sqrt(sums[0] / sums[1]) : 0.0;
+}
+
+void Solver::b_rate(double dt, std::vector<double> &rate)
+{
+    const std::vector<double> keep(s_.Phi);
+    b_smooth(dt, nullptr);
+    rate.assign(keep.size(), 0.0);
+    for (std::size_t f = 0; f < keep.size(); ++f) rate[f] = active_[f] ? (s_.Phi[f] - keep[f]) / dt : 0.0;
+    s_.Phi = keep;
 }
 
 Diagnostics Solver::collect(double dt)

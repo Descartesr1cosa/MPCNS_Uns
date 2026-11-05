@@ -29,3 +29,7 @@ target_link_libraries(mercury_core PUBLIC uns_comm uns_io uns_geometry uns_compl
 add_executable(MercuryUns main.cpp)
 uns_target_defaults(MercuryUns)
 target_link_libraries(MercuryUns PRIVATE mercury_core)
+
+add_executable(mg_b_proto bproto.cpp)
+uns_target_defaults(mg_b_proto)
+target_link_libraries(mg_b_proto PRIVATE mercury_core uns_refine uns_partition uns_parallel)
