@@ -46,12 +46,24 @@ smeared over a thicker layer on our 25x coarser mesh); the tail density is ~2x h
 lower and the total Na+ mass half (the exosphere scale heights 0.04-0.3 R_M are not resolved by our first fluid layers of 0.05 R_M, the hot-spot
 sources are smeared, Na+ leaves through the absorbing wall).
 
+## Load-balance profile (done)
+`MercuryUns` writes `<output_dir>/load_profile.json` (full record) and `load_profile.txt` at the end of every run (`write_profile=1`):
+per rank compute time/step (wall - communication/wait), wait time and fraction, owned fluid / solid cells, ghost ("virtual") cells and ghost/owned ratio,
+owned edges, resistive edges, CG iterations; the least-squares fit `compute ~ a n_fluid + b n_solid` (solid/fluid ratio, r2), the wait per ghost cell,
+and a `recommended_cost_model` (cost_fluid=1, cost_solid, comm_fluid, comm_solid). Use it for the refined mesh:
+`mpcns_pre setup.txt mesh.txt cost_profile=<run>/load_profile.txt proc_num=N ...` (the .txt holds the `cost_*` keys; the partition report now also
+lists the owned fluid / solid cells of each rank).
+First measurements (24192 cells, 28 ranks, ~860 cells/rank, first order, 3 time units): compute max/mean = 1.11, **wait fraction 53-64 %**,
+fitted solid cost 0.26-0.50 of a fluid cell (r2 0.2-0.4: rank-to-rank compute differences are small, so the fit is only a rough guide),
+the repartition with the fitted weights did not change the balance measurably (1.11 -> 1.13, noise level). What matters more here:
+- the implicit resistive CG: ~39 iterations/step with rtol 1e-6, **40 % of the run time** (19.8 s vs 11.6 s without it); `resistive_rtol=5e-3`
+  (the reference value, now the default in mercury.txt) gives 15.7 s;
+- at ~860 cells per rank the run is communication/latency bound (53 % wait even without the CG): fewer ranks (or a denser mesh) will be as fast per step.
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
-2. Load balance: the calibration *task* (fit cost_fluid / cost_solid from `Solver::profile()` over the ranks of a deliberately unbalanced
-   partition, write `partition_profile.txt`) and `mpcns_pre cost_profile=...` reading it are **not written**. The default `CostModel`
-   (solid 0.35 of a fluid cell, 14 % of the cells are solid) is a guess. The solid cells carry the resistive CG (≈ 20–100 iterations of a
-   reduction + broadcast over the resistive edges, which include the fluid cells with r < 1.1), so their cost is not "small".
+2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and
+   possibly restrict the CG collectives to the ranks that own resistive edges.
 3. The production run (28–56 ranks, t = 25), its output, a magnetopause stand-off check (expected ≈ 1.4–1.5 R_M subsolar).
 4. Unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere`; update of `docs/Solver.md` (it still describes the first version).
 5. Hall (EMF contribution) is intentionally not included.

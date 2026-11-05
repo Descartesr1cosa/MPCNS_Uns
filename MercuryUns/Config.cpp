@@ -38,6 +38,7 @@ Config Config::from_params(const uns::Params &p)
     c.output_dir = p.get_string("output_dir", "DATA");
     c.write_vtk = p.get_bool("write_vtk", true);
     c.write_fields = p.get_bool("write_fields", true);
+    c.write_profile = p.get_bool("write_profile", true);
     c.init_fields = p.get_string("init_fields", "");
 
     // free stream: physical solar-wind values (like the legacy INITIAL list) or directly nondimensional

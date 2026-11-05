@@ -52,7 +52,7 @@ bool   is_Mercury_resistance 1
 double mercury_eta_r_inner 0.84
 double mercury_eta_r_outer 1.04
 double mercury_eta_width  0.02
-double resistive_rtol     1e-6         // reference: implicit_resistive_ksp_rtol 5e-3, max_it 20 (PETSc); here an own parallel CG
+double resistive_rtol     5e-3         // = reference implicit_resistive_ksp_rtol (max_it 20 there); own parallel CG
 int    resistive_max_it   200
 double cuct               0.5
 

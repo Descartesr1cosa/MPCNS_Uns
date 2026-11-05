@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <vector>
 
 #include "diagnostics/DivB.h"
 #include "induction/Current.h"
@@ -255,6 +256,7 @@ Solver::Profile Solver::profile() const
     Profile p;
     p.wall = wall_s_; p.comm = ex_.comm_seconds(); p.steps = nstep_; p.cg_iterations = cg_total_;
     for (Id c = 0; c < cx.ent[3].n_owned; ++c) (cx.cell_material[c] == kSolid ? p.n_solid : p.n_fluid)++;
+    p.n_ghost_cells = cx.n_cells() - cx.ent[3].n_owned;
     p.n_edges = cx.ent[1].n_owned; p.n_faces = cx.ent[2].n_owned; p.n_res_edges = res_.n_owned_edges();
     return p;
 }
@@ -287,6 +289,7 @@ void Solver::run()
     log(d);
     if (cfg_.write_vtk) write_vtk();
     if (cfg_.write_fields) write_global_fields(cfg_.output_dir + "/fields_final.unsb");
+    if (cfg_.write_profile) write_load_profile(cfg_.output_dir + "/load_profile");
 }
 
 // ------------------------------------------------------------------------------------------ output
@@ -358,5 +361,89 @@ void Solver::write_global_fields(const std::string &path)
         io::write_fields(path, 0, out);
         std::printf("wrote %s (t = %.6e)\n", path.c_str(), time_);
     }
+}
+} // namespace mercury
+
+// ------------------------------------------------------------------------------------------ load-balance profile
+namespace mercury
+{
+void Solver::write_load_profile(const std::string &base)
+{
+    const Profile p = profile();
+    const int np = lm_.nranks;
+    const double v[9] = {p.wall, p.comm, double(p.n_fluid), double(p.n_solid), double(p.n_ghost_cells), double(p.n_res_edges), double(p.cg_iterations),
+                         double(p.n_edges), double(p.steps)};
+    std::vector<double> all(9 * static_cast<std::size_t>(np));
+    MPI_Gather(v, 9, MPI_DOUBLE, all.data(), 9, MPI_DOUBLE, 0, comm_);
+    if (rank_ != 0) return;
+    auto at = [&](int r, int k) { return all[9 * static_cast<std::size_t>(r) + k]; };
+    const double steps = std::max(at(0, 8), 1.0);
+    // per-step compute time of each rank = wall - communication/wait
+    std::vector<double> tc(np), tw(np);
+    double sf = 0, ss = 0, sff = 0, sfs = 0, sss = 0, stf = 0, sts = 0, tmax = 0, tsum = 0;
+    for (int r = 0; r < np; ++r)
+    {
+        tc[r] = (at(r, 0) - at(r, 1)) / steps;
+        tw[r] = at(r, 1) / steps;
+        const double nf = at(r, 2), ns = at(r, 3);
+        sff += nf * nf; sfs += nf * ns; sss += ns * ns; stf += nf * tc[r]; sts += ns * tc[r];
+        sf += nf; ss += ns; tmax = std::max(tmax, tc[r]); tsum += tc[r];
+    }
+    // least squares  tc ~ a nf + b ns   (non-negative)
+    double a = 0, b = 0;
+    const double det = sff * sss - sfs * sfs;
+    if (det > 1e-9 * sff * sss) { a = (stf * sss - sts * sfs) / det; b = (sts * sff - stf * sfs) / det; }
+    bool fitted = det > 1e-9 * sff * sss && a > 0 && b >= 0;
+    if (!fitted) { a = sff > 0 ? stf / sff : 0; b = 0; fitted = false; } // fluid-only fit; solid ratio kept at the default
+    double res = 0, tot = 0;
+    for (int r = 0; r < np; ++r)
+    {
+        const double pred = a * at(r, 2) + b * at(r, 3);
+        res += (tc[r] - pred) * (tc[r] - pred);
+        tot += (tc[r] - tsum / np) * (tc[r] - tsum / np);
+    }
+    const double r2 = tot > 0 ? 1.0 - res / tot : 0.0;
+    // communication/wait: seconds per step per ghost cell (median over ranks), in units of one fluid-cell update
+    std::vector<double> cg;
+    for (int r = 0; r < np; ++r) if (at(r, 4) > 0) cg.push_back(tw[r] / at(r, 4));
+    std::sort(cg.begin(), cg.end());
+    const double wait_per_ghost = cg.empty() ? 0.0 : cg[cg.size() / 2];
+    CostModelRecommendation rec;
+    rec.cost_fluid = 1.0;
+    rec.cost_solid = (fitted && a > 0) ? std::min(5.0, std::max(0.05, b / a)) : 0.35;
+    rec.comm_fluid = a > 0 ? std::min(5.0, wait_per_ghost / a) : 1.0;
+    rec.comm_solid = 0.3 * rec.comm_fluid;
+    const double mean = tsum / np;
+    double wsum = 0, tw_all = 0;
+    for (int r = 0; r < np; ++r) { wsum += at(r, 1); tw_all += at(r, 0); }
+    const double wait_frac = tw_all > 0 ? wsum / tw_all : 0.0;
+    FILE *fj = std::fopen((base + ".json").c_str(), "w");
+    if (!fj) return;
+    std::fprintf(fj, "{\n  \"description\": \"MercuryUns load profile of a coarse run; cost_* feed mpcns_pre (cost_profile=)\",\n");
+    std::fprintf(fj, "  \"nranks\": %d, \"steps\": %.0f,\n  \"fit\": {\"seconds_per_fluid_cell_per_step\": %.4e, \"seconds_per_solid_cell_per_step\": %.4e, "
+                     "\"solid_to_fluid_ratio\": %.4f, \"two_parameter_fit_ok\": %s, \"r2\": %.4f, \"wait_seconds_per_ghost_cell_per_step\": %.4e},\n",
+                 np, steps, a, b, a > 0 ? b / a : 0.0, fitted ? "true" : "false", r2, wait_per_ghost);
+    std::fprintf(fj, "  \"resistive_cg_iterations_per_step\": %.2f,\n", at(0, 6) / steps);
+    std::fprintf(fj, "  \"measured_imbalance\": {\"compute_max_over_mean\": %.4f, \"wait_fraction_of_wall\": %.4f},\n", mean > 0 ? tmax / mean : 1.0,
+                 [&] { double w = 0, t = 0; for (int r = 0; r < np; ++r) { w += at(r, 1); t += at(r, 0); } return t > 0 ? w / t : 0.0; }());
+    std::fprintf(fj, "  \"recommended_cost_model\": {\"cost_fluid\": %.4f, \"cost_solid\": %.4f, \"comm_fluid\": %.4f, \"comm_solid\": %.4f},\n", rec.cost_fluid,
+                 rec.cost_solid, rec.comm_fluid, rec.comm_solid);
+    std::fprintf(fj, "  \"ranks\": [\n");
+    for (int r = 0; r < np; ++r)
+        std::fprintf(fj, "    {\"rank\": %d, \"compute_s_per_step\": %.4e, \"wait_s_per_step\": %.4e, \"wait_fraction\": %.3f, \"fluid_cells\": %.0f, \"solid_cells\": %.0f, "
+                         "\"ghost_cells\": %.0f, \"ghost_to_owned\": %.3f, \"owned_edges\": %.0f, \"resistive_edges\": %.0f, \"cg_iterations\": %.0f}%s\n",
+                     r, tc[r], tw[r], at(r, 0) > 0 ? at(r, 1) / at(r, 0) : 0.0, at(r, 2), at(r, 3), at(r, 4), (at(r, 2) + at(r, 3)) > 0 ? at(r, 4) / (at(r, 2) + at(r, 3)) : 0.0,
+                     at(r, 7), at(r, 5), at(r, 6), r + 1 < np ? "," : "");
+    std::fprintf(fj, "  ]\n}\n");
+    std::fclose(fj);
+    FILE *ft = std::fopen((base + ".txt").c_str(), "w");
+    if (ft)
+    {
+        std::fprintf(ft, "// written by MercuryUns (%d ranks, %.0f steps): cost model for mpcns_pre, use  cost_profile=%s.txt\n", np, steps, base.c_str());
+        std::fprintf(ft, "double cost_fluid %.4f\ndouble cost_solid %.4f\ndouble comm_fluid %.4f\ndouble comm_solid %.4f\n", rec.cost_fluid, rec.cost_solid, rec.comm_fluid, rec.comm_solid);
+        std::fclose(ft);
+    }
+    std::printf("load profile: compute max/mean = %.3f, wait fraction = %.3f, solid/fluid cost = %.3f (%s fit, r2 = %.2f), comm per ghost cell = %.3f cells -> %s.json/.txt\n",
+                mean > 0 ? tmax / mean : 1.0, wait_frac, rec.cost_solid, fitted ? "2-parameter" : "default-ratio", r2, rec.comm_fluid, base.c_str());
 }
 } // namespace mercury

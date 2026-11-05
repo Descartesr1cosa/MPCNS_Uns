@@ -44,6 +44,7 @@ struct Config
     long output_start = 0;          // first step eligible for periodic dumps (debugging)
     std::string output_dir = "DATA";
     bool write_vtk = true;
+    bool write_profile = true;      // load_profile.json/.txt (per-rank timings and counts, fitted cost model) at the end of run()
     bool write_fields = true;       // global fields file (coarse solution / restart) at the end
 
     // ---- initial / free-stream state

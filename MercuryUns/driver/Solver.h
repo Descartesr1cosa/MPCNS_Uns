@@ -40,6 +40,11 @@ struct Diagnostics
     double mass_H = 0, mass_Na = 0;
 };
 
+struct CostModelRecommendation
+{
+    double cost_fluid = 1, cost_solid = 0.35, comm_fluid = 1, comm_solid = 0.3;
+};
+
 class Solver
 {
 public:
@@ -49,6 +54,9 @@ public:
     double step(double dt_max);     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
     Diagnostics diagnostics();      // collective
     void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
+    // Collective: gathers the per-rank timings / entity counts of the time loop, fits a fluid/solid/communication cost model by
+    // least squares and writes <base>.json (full record) and <base>.txt (cost_* keys readable by `mpcns_pre cost_profile=`).
+    void write_load_profile(const std::string &base);
     void write_global_fields(const std::string &path); // collective: coarse solution / restart file (rank 0 writes)
 
     // wall-clock bookkeeping of the time loop (for load-balance calibration)
@@ -56,6 +64,7 @@ public:
     {
         double wall = 0, comm = 0;             // seconds spent in step(): total / in exchanges, reductions and waits
         long steps = 0, cg_iterations = 0;
+    long n_ghost_cells = 0;
         long n_fluid = 0, n_solid = 0, n_edges = 0, n_res_edges = 0, n_faces = 0;   // owned entities of this rank
         double compute() const { return wall - comm; }
     };

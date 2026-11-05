@@ -23,6 +23,7 @@ int main(int argc, char **argv)
             if (a == "-") continue;
             if (a.find('=') == std::string::npos) p.load_file(a); else p.set_override(a);
         }
+        if (p.has("cost_profile")) p.load_file(p.get_string("cost_profile", "")); // load-balance profile written by MercuryUns
         const std::string task = p.get_string("task", "generate");
         if (task == "generate") return pre::run_generate(p);
         if (task == "inspect") return pre::run_inspect(p);

@@ -118,7 +118,7 @@ int emit_case(const Mesh &m, const Params &p, const std::string &out, const std:
     std::string text = rep.format(to_string(po.method));
 
     Distributor dist(m, part, np);
-    text += "\nrank   owned(N,E,F,C)                        ghost(N,E,F,C)                      halo send (cells)  edge-reduce send\n";
+    text += "\nrank   owned(N,E,F,C)                        ghost(N,E,F,C)                      halo send (cells)  edge-reduce send   fluid   solid\n";
     std::vector<std::string> pieces;
     std::vector<io::VtkField> proto = {{"rank", 1, {}}, {"volume", 1, {}}, {"material", 1, {}}};
     for (const auto &f : cell_fields) proto.push_back({f.name, f.ncomp, {}});
@@ -132,7 +132,15 @@ int emit_case(const Mesh &m, const Params &p, const std::string &out, const std:
                       cx.ent[1].n_owned, cx.ent[2].n_owned, cx.ent[3].n_owned, cx.count(Dim::Node) - cx.ent[0].n_owned,
                       cx.count(Dim::Edge) - cx.ent[1].n_owned, cx.count(Dim::Face) - cx.ent[2].n_owned,
                       cx.count(Dim::Cell) - cx.ent[3].n_owned, lm.plan.send[3].total(), lm.plan.reduce_send.total());
-        text += b;
+        {
+            long nf = 0, ns = 0;
+            for (Id c = 0; c < cx.ent[3].n_owned; ++c) (cx.cell_material[c] == kSolid ? ns : nf)++;
+            char tail[64];
+            std::snprintf(tail, sizeof tail, "  %7ld %7ld\n", nf, ns);
+            std::string row(b);
+            row.pop_back(); // the newline
+            text += row + tail;
+        }
         if (p.get_bool("write_vtk", true))
         {
             const Geometry g = compute_geometry(lm.mesh);
