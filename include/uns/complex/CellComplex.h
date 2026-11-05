@@ -59,3 +59,9 @@ struct Mesh
     std::vector<std::string> tag_names; // index = face tag id (0 reserved)
 };
 } // namespace uns
+
+namespace uns
+{
+// FNV-1a hash of the incidence tables (ties solution files to a complex).
+std::uint64_t topology_hash(const CellComplex &cx);
+} // namespace uns

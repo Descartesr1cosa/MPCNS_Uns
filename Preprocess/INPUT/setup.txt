@@ -1,0 +1,35 @@
+//=============================================================================
+// mpcns_pre setup.   usage:  mpcns_pre setup.txt [name=value ...]
+// format: "<type> <name> <value>   // comment"; command-line  name=value  overrides
+//=============================================================================
+string task               generate        // generate | inspect | export
+string output_dir         geometry        // per-rank files part_XXXXX.unsb, global.unsb, partition_report.txt
+int    proc_num           8               // number of compute ranks
+bool   write_vtk          1               // part_XXXXX.vtu + partition.pvtu (ParaView), colour by rank
+
+//--- mesh source -------------------------------------------------------------
+string mesh_source        cubed_sphere    // box | cubed_sphere   (plot3d / gmsh readers: see PLAN.md)
+// box
+int    box_nx             16
+int    box_ny             16
+int    box_nz             16
+string box_lo             0 0 0
+string box_hi             1 1 1
+// cubed-sphere shell: Solid cells in layers [0, cs_nsolid)
+int    cs_ncube           8               // cells per panel edge
+int    cs_nr              10              // radial layers
+int    cs_nsolid          2
+double cs_r_in            0.8
+double cs_r_out           12.0
+double cs_r_stretch       1.12
+
+//--- partition ---------------------------------------------------------------
+string partition_method   hilbert         // hilbert | morton | rcb | metis (needs UNS_ENABLE_METIS)
+int    partition_refine_passes 8          // greedy boundary refinement, 0 = off
+double partition_tolerance 0.03
+// vertex weight = cell compute cost ; edge weight = halo volume of the shared face
+double cost_fluid         1.0             // fluid + electromagnetics
+double cost_solid         0.35            // electromagnetics only (solid shell)
+double cost_extra_face    0.04            // per face beyond 6 (polyhedra)
+double comm_fluid         1.0
+double comm_solid         0.3

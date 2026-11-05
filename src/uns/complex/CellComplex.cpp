@@ -50,3 +50,22 @@ void CellComplex::cell_nodes(Id c, std::vector<Id> &nodes) const
     nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
 }
 } // namespace uns
+
+namespace uns
+{
+std::uint64_t topology_hash(const CellComplex &cx)
+{
+    std::uint64_t h = 1469598103934665603ull;
+    auto mix = [&](const void *p, std::size_t n) {
+        const unsigned char *b = static_cast<const unsigned char *>(p);
+        for (std::size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
+    };
+    for (const Incidence *t : {&cx.e2n, &cx.f2e, &cx.c2f})
+    {
+        mix(t->ptr.data(), t->ptr.size() * sizeof(std::int64_t));
+        mix(t->idx.data(), t->idx.size() * sizeof(Id));
+        mix(t->sgn.data(), t->sgn.size());
+    }
+    return h;
+}
+} // namespace uns
