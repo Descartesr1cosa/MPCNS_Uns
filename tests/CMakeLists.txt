@@ -1,0 +1,8 @@
+function(uns_add_test name)
+  add_executable(${name} ${name}.cpp)
+  uns_target_defaults(${name})
+  target_link_libraries(${name} PRIVATE ${ARGN})
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+uns_add_test(test_complex_geometry uns_generate uns_geometry uns_complex)

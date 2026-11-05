@@ -1,0 +1,7 @@
+function(uns_target_defaults tgt)
+  target_include_directories(${tgt} PUBLIC ${PROJECT_SOURCE_DIR}/include)
+  target_compile_features(${tgt} PUBLIC cxx_std_20)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  endif()
+endfunction()
