@@ -28,6 +28,24 @@ H mass 3314 -> 3400). Command: add `second_order=0 output_step=5000` to the resu
 stand-off (the sampled x-axis profile still shows slow dense plasma, |u| < 0.3, down to the surface — the dayside pile-up / Na+ loading looks
 strong and has not been checked against the legacy result), load balance, a comparison with MPCNS_Mercury output.
 
+## Comparison with the legacy MPCNS_Mercury restart (`Run/../tmp/DATA`, step 764000, t = 24.51, 56 blocks, 524880 fluid cells)
+Tools: `tools/legacy_compare/{rd.py,ref.py,ours.py}` (read the legacy `MPCNSRST` files + `.grd` grids; our `fields_final.unsb`). Ours: first order,
+20736 fluid cells (25x fewer), t = 25.0; our output is kept in `tmp/uns_run1_first_order/`.
+| quantity | legacy | ours (first order, coarse) |
+|---|---|---|
+| fluid volume / mean rho_H | 3640 / 1.035 | 3332 / 1.027 |
+| mass H+ / Na+ | 3767 / 6.62 | 3421 / 3.46 |
+| min rho_H / min p_H | 0.0061 / 0.0020 | 0.043 / 0.0049 |
+| dayside axis: peak rho_H (x of peak) | 2.95 (1.6-1.8) | 2.38 (1.45-1.6) |
+| dayside axis: u_x at x=1.8-2.2 / 1.6-1.8 | -0.81 / -0.25 | -0.79 / -0.42 |
+| dayside axis: rho_Na at x = 1.0-1.1 / 1.2-1.3 | 0.77 / 0.43 | 0.10 / 0.09 |
+| tail axis (x -2..-1.2): rho_H, p_H | 0.041, 0.054 | 0.083, 0.057 |
+| tail axis (x -4..-3): rho_H, |u| | 0.060, 0.62 | 0.115, 0.84 |
+The bow-shock pile-up, the pressure level and the deceleration towards the planet agree qualitatively and roughly in magnitude (the shock is
+smeared over a thicker layer on our 25x coarser mesh); the tail density is ~2x higher and the wake less evacuated; the near-planet Na+ is 5-8x
+lower and the total Na+ mass half (the exosphere scale heights 0.04-0.3 R_M are not resolved by our first fluid layers of 0.05 R_M, the hot-spot
+sources are smeared, Na+ leaves through the absorbing wall).
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the calibration *task* (fit cost_fluid / cost_solid from `Solver::profile()` over the ranks of a deliberately unbalanced
