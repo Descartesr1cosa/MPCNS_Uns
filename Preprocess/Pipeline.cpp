@@ -37,6 +37,28 @@ std::string rank_file(const std::string &dir, int r)
     return dir + b;
 }
 
+// Multigrid-aligned partition: id of the 2^K x 2^K x 2^K block (of the structured cubed-sphere base mesh) that base cell `c` belongs to.
+// Cell order of make_cubed_sphere_shell: ((axis*2+side)*M + iu)*M + iv)*nr + k.  K = partition_mg_levels (0: off).
+bool mg_block_params(const Params &p, int &K, int &M, int &nr)
+{
+    K = p.get_int("partition_mg_levels", 0);
+    if (K <= 0) return false;
+    M = p.get_int("cs_ncube", 0); nr = p.get_int("cs_nr", 0);
+    const int s = 1 << K, ns = p.get_int("cs_nsolid", 0);
+    if (M <= 0 || nr <= 0 || M % s || nr % s || ns % s)
+        throw std::runtime_error("partition_mg_levels=" + std::to_string(K) + " needs cs_ncube, cs_nr and cs_nsolid divisible by " + std::to_string(s) + " (and set in this run)");
+    return true;
+}
+Id mg_block_of(Id c, int K, int M, int nr)
+{
+    Id t = c;
+    const int k = static_cast<int>(t % nr); t /= nr;
+    const int iv = static_cast<int>(t % M); t /= M;
+    const int iu = static_cast<int>(t % M); t /= M;
+    const int Mc = M >> K, nc = nr >> K;
+    return ((t * Mc + (iu >> K)) * Mc + (iv >> K)) * nc + (k >> K);
+}
+
 Mesh make_mesh(const Params &p)
 {
     const std::string src = p.get_string("mesh_source", "box");
@@ -96,7 +118,7 @@ namespace
 {
 // Validate, partition and write a (global) mesh as per-rank sub-complexes.
 // `cell_fields` are global cell arrays (indexed by global cell id) added to the ParaView pieces.
-int emit_case(const Mesh &m, const Params &p, const std::string &out, const std::vector<io::VtkField> &cell_fields)
+int emit_case(const Mesh &m, const Params &p, const std::string &out, const std::vector<io::VtkField> &cell_fields, const std::vector<Id> *groups = nullptr)
 {
     const int np = p.get_int("proc_num", 4);
     make_dir(out);
@@ -113,7 +135,13 @@ int emit_case(const Mesh &m, const Params &p, const std::string &out, const std:
     po.method = parse_method(p.get_string("partition_method", "hilbert"));
     po.refine_passes = p.get_int("partition_refine_passes", po.refine_passes);
     po.tolerance = p.get_double("partition_tolerance", po.tolerance);
-    const std::vector<int> part = partition_cells(cg, np, po);
+    const std::vector<int> part = groups ? partition_cells_grouped(cg, *groups, np, po) : partition_cells(cg, np, po);
+    if (groups)
+    {
+        Id ng = 0;
+        for (Id v : *groups) ng = std::max(ng, v + 1);
+        std::printf("[partition] multigrid-aligned: %d groups (all cells of a group on one rank)\n", ng);
+    }
     const PartitionReport rep = evaluate_partition(cg, part, np);
     std::string text = rep.format(to_string(po.method));
 
@@ -175,7 +203,36 @@ int emit_case(const Mesh &m, const Params &p, const std::string &out, const std:
 
 int run_generate(const Params &p)
 {
-    return emit_case(make_mesh(p), p, p.get_string("output_dir", "geometry"), {});
+    const Mesh m = make_mesh(p);
+    int K, M, nr;
+    if (mg_block_params(p, K, M, nr))
+    {
+        if (static_cast<long>(m.cx.n_cells()) != 6L * M * M * nr) throw std::runtime_error("partition_mg_levels is only implemented for the cubed-sphere base mesh");
+        std::vector<Id> grp(m.cx.n_cells());
+        for (Id c = 0; c < m.cx.n_cells(); ++c) grp[c] = mg_block_of(c, K, M, nr);
+        { // sanity: every block must be a connected set of 8^K cells (checks the assumed generator cell order)
+            const Geometry g0 = compute_geometry(m);
+            const CellGraph cg0 = build_cell_graph(m, g0, CostModel());
+            std::map<Id, std::vector<Id>> members;
+            for (Id c = 0; c < m.cx.n_cells(); ++c) members[grp[c]].push_back(c);
+            for (const auto &kv : members)
+            {
+                std::vector<char> seen(m.cx.n_cells(), 0);
+                std::vector<Id> st{kv.second[0]};
+                seen[kv.second[0]] = 1;
+                std::size_t cnt = 0;
+                while (!st.empty())
+                {
+                    const Id c = st.back(); st.pop_back(); ++cnt;
+                    for (auto k = cg0.xadj[c]; k < cg0.xadj[c + 1]; ++k)
+                        if (!seen[cg0.adj[k]] && grp[cg0.adj[k]] == kv.first) { seen[cg0.adj[k]] = 1; st.push_back(cg0.adj[k]); }
+                }
+                if (cnt != kv.second.size()) throw std::runtime_error("partition_mg_levels: block is not connected (unexpected generator cell order)");
+            }
+        }
+        return emit_case(m, p, p.get_string("output_dir", "geometry"), {}, &grp);
+    }
+    return emit_case(m, p, p.get_string("output_dir", "geometry"), {});
 }
 
 // Synthetic coarse solution (dipole-like divergence-free B = d1(A), density bump in the tail, current sheet)
@@ -304,7 +361,17 @@ int run_refine(const Params &p)
         vtk.push_back({f.name, f.ncomp, f.values});
         out_fields.push_back(std::move(f));
     }
-    const int rc = emit_case(rr.fine, p, out, vtk);
+    int rc;
+    int K, M, nr;
+    if (mg_block_params(p, K, M, nr))
+    {
+        if (static_cast<long>(coarse.cx.n_cells()) != 6L * M * M * nr) throw std::runtime_error("partition_mg_levels: the coarse complex is not the cubed-sphere base mesh of cs_ncube/cs_nr");
+        std::vector<Id> grp(rr.fine.cx.n_cells());
+        for (Id c = 0; c < rr.fine.cx.n_cells(); ++c) grp[c] = mg_block_of(rr.parent_cell[c], K, M, nr);
+        rc = emit_case(rr.fine, p, out, vtk, &grp);
+    }
+    else
+        rc = emit_case(rr.fine, p, out, vtk);
     if (rc == 0 && !out_fields.empty())
     {
         io::write_fields(out + "/fine_fields.unsb", topology_hash(rr.fine.cx), out_fields);

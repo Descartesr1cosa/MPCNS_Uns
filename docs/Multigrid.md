@@ -308,9 +308,42 @@ at the end of a multigrid run the hierarchy sizes are printed once (`multigrid: 
 14. Files added/changed: `MercuryUns/multigrid/*`, `driver/Solver.*` (`step_pseudo`, `mg_correct_`, residuals), `fluid/FluidRHS.*` (`cell_time_steps`, `add_sources_n`), `physics/Gyration.*` (`gyrate_n`, per-cell steps), `induction/Faraday.*` (`faraday_update_edge_dt`),
     `induction/ImplicitInduction.*` (edge steps), `Config.*`, `tests/test_multigrid.cpp`, `tests/test_pseudo_time.cpp`, `tools/conv_report.py`, `scripts/05_steady_run.sh`, `PLAN.md` (M9).
 
+15. **Two attempts that were tried and reverted (not in the code).** (a) Anderson acceleration (depth 5–20, weighted inner product, on the whole state, B step R = 1): worse than the plain iteration (res_H 1e-3 instead of 3e-5 after 3000 iterations; the pseudo-step map is non-smooth because of floors, limiters and the varying step field).
+    (b) Projected B update (desired increment −τ_f d1E projected on range(d1) by a few Jacobi-CG iterations of the curl-curl system; exact fixed point and exact d2 = 0 for any iteration count) was written but abandoned before the first run, by decision: the next approach is a curl-curl multigrid for B on a nested hierarchy (section 8).
+
 ## 10. References
 * A. Jameson, W. Schmidt, E. Turkel, *Numerical solution of the Euler equations by finite volume methods using Runge-Kutta time-stepping schemes*, AIAA 81-1259 (local time stepping, multigrid).
 * A. Brandt, *Multi-level adaptive solutions to boundary-value problems*, Math. Comp. 31 (1977) 333 (FAS).
 * W. A. Mulder, *A new multigrid approach to convection problems*, J. Comput. Phys. 83 (1989) 303 (directional coarsening for convection).
 * D. J. Mavriplis, V. Venkatakrishnan, *A 3D agglomeration multigrid solver for the Reynolds-averaged Navier-Stokes equations on unstructured meshes*, Int. J. Numer. Methods Fluids 23 (1996) 527.
 * C. R. Evans, J. F. Hawley, *Simulation of magnetohydrodynamic flows: a constrained transport method*, ApJ 332 (1988) 659 (CT).
+
+## 11. B multigrid (curl-curl, nested hierarchy): preparation
+
+Direction decided with the user (2026-11-05): no per-edge local step for B (it changes the fixed point), no projection, no Anderson.  B is relaxed on every level with the *same*
+uniform physical step and the coarse levels correct the long waves; restriction of the face flux = sum of the child face fluxes (exact discrete Stokes, $d_2$ preserved), prolongation = `transfer_B`;
+fixed point stays $d_1E=0$.  Hierarchy: route 1 = structured coarsening of the cubed-sphere base mesh (2:1 in `cs_ncube`, `cs_nr`, `cs_nsolid`, same node lattice) + the octree levels of `mpcns_pre task=refine`.
+All descendants of a coarse cell have to sit on the rank that owns it, hence a partition that is aligned to the hierarchy.
+
+### 11.1 Partition control (done): `partition_mg_levels = K`
+`mpcns_pre ... partition_mg_levels=K cs_ncube=M cs_nr=N cs_nsolid=S` (generate and refine): the base cells are grouped into blocks of $2^K\times2^K\times2^K$ (needs $M,N,S$ divisible by $2^K$), all cells of a block
+(for `refine`: all fine cells whose base cell is in the block) stay on one rank; the blocks are partitioned on the quotient graph (`partition_cells_grouped`; weights = cost model, Hilbert + greedy refinement as before).
+K = 0 is the old partition.  The code checks that every block is connected (guards the assumed generator cell order); `tests/test_partition_grouped.cpp`.
+Load imbalance (max load / mean load) and cut faces, Mercury mesh (M = 12, N = 28, S = 4 → K ≤ 2: blocks of 8 or 64 cells, 3024 / 378 blocks on the base mesh):
+
+| mesh | ranks | K = 0 (normal) | K = 1 (8-cell blocks) | K = 2 (64-cell blocks) |
+|---|---|---|---|---|
+| base 24192 cells | 7 | 1.004 / 6120 | 1.028 / 5480 | 1.027 / 4864 |
+| | 12 | 1.013 / 7255 | 1.028 / 6212 | 1.020 / 6048 |
+| | 28 | 1.029 / 10055 | 1.028 / 9132 | 1.062 / 8976 |
+| | 56 | 1.030 / 12558 | 1.030 / 11552 | **1.143** / 11120 |
+| refined 129738 cells (levels 0–2, the production-like setup) | 7 | 1.004 / 17588 | 1.025 / 11927 | 1.069 / 12954 |
+| | 12 | 1.007 / 22587 | 1.029 / 16819 | 1.073 / 20620 |
+| | 28 | 1.016 / 31039 | 1.029 / 25097 | **1.184** / 27434 |
+| | 56 | 1.030 / 40739 | **1.109** / 34368 | **1.606** / 33283 |
+(entries: imbalance / cut faces)
+
+Reading: aligning to 8-cell blocks (K = 1, one multigrid level below the base mesh) costs ≤ 3 % imbalance up to 28 ranks (11 % at 56 ranks, 2300 cells/rank) and **reduces** the number of cut faces by 15–30 %
+(blocky domains); 64-cell blocks (K = 2) cost 7 % at 7–12 ranks, 18 % at 28 ranks and 61 % at 56 ranks on the refined mesh, because a refined 64-cell block carries up to 64 × 64 fine cells and the
+granularity (≈ 350 blocks of very unequal weight) is too coarse.  Recommendation: K ≤ 1 for the production partition (56 ranks), K = 2 only up to ≈ 12–28 ranks; the granularity problem would be
+reduced by a finer weight model of the blocks (not tried) or by letting the refined region leave the block-aligned rule (levels below the base mesh then live on fewer ranks).

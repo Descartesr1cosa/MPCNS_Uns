@@ -1,6 +1,7 @@
 #include "uns/partition/Partitioner.h"
 
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <numeric>
 #include <set>
@@ -206,6 +207,38 @@ std::vector<int> partition_cells(const CellGraph &g, int nparts, const PartOptio
                                  "(configure with -DUNS_ENABLE_METIS=ON and a METIS install)");
     }
     if (opt.refine_passes > 0 && nparts > 1) refine(g, part, nparts, opt.refine_passes, opt.tolerance);
+    return part;
+}
+
+std::vector<int> partition_cells_grouped(const CellGraph &g, const std::vector<Id> &group, int nparts, const PartOptions &opt)
+{
+    Id ng = 0;
+    for (Id v : group) ng = std::max(ng, v + 1);
+    CellGraph q;
+    q.vw.assign(ng, 0.0);
+    q.centre.assign(ng, Vec3());
+    for (Id c = 0; c < g.n(); ++c)
+    {
+        q.vw[group[c]] += g.vw[c];
+        q.centre[group[c]] += g.vw[c] * g.centre[c];
+    }
+    for (Id i = 0; i < ng; ++i) if (q.vw[i] > 0) q.centre[i] *= 1.0 / q.vw[i];
+    std::vector<std::map<Id, double>> nb(ng);
+    for (Id c = 0; c < g.n(); ++c)
+        for (std::int64_t k = g.xadj[c]; k < g.xadj[c + 1]; ++k)
+        {
+            const Id a = group[c], b = group[g.adj[k]];
+            if (a != b) nb[a][b] += g.adjw[k];
+        }
+    q.xadj.assign(ng + 1, 0);
+    for (Id i = 0; i < ng; ++i)
+    {
+        q.xadj[i + 1] = q.xadj[i] + static_cast<std::int64_t>(nb[i].size());
+        for (const auto &kv : nb[i]) { q.adj.push_back(kv.first); q.adjw.push_back(kv.second); }
+    }
+    const std::vector<int> pg = partition_cells(q, nparts, opt);
+    std::vector<int> part(g.n());
+    for (Id c = 0; c < g.n(); ++c) part[c] = pg[group[c]];
     return part;
 }
 

@@ -26,6 +26,11 @@ struct PartOptions
 // Returns the rank of every cell.
 std::vector<int> partition_cells(const CellGraph &g, int nparts, const PartOptions &opt);
 
+// Same, but cells with the same `group` id (0..ngroups-1) are never separated: the groups are partitioned on the quotient graph
+// (vertex weight = sum of the member weights, edge weight = sum of the cut face weights, centre = weighted mean) and the result is expanded.
+// Used so that a multigrid hierarchy (all descendants of a coarse cell) stays inside one rank.
+std::vector<int> partition_cells_grouped(const CellGraph &g, const std::vector<Id> &group, int nparts, const PartOptions &opt);
+
 struct PartitionReport
 {
     int nparts = 0;
