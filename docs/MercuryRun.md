@@ -84,6 +84,27 @@ Speed (600 steps, first order, dt ~ 3.8e-4, wall/step = slowest rank compute + w
 The coarse-run profile changes the step time by 0-5 % (within noise): at 2000-4000 cells per rank the balance is already ~1.1 and waiting
 (latency, the resistive CG collectives) is what remains. Not run: the long refined run, second order on the refined mesh.
 
+## Refined run t = 25 -> 30 and speed against the legacy program
+Run: refined mesh above (124999 cells), first order, 56 ranks, restart time carried through the refinement (`_time`), `cost_profile` of the coarse run.
+Result in `tmp/uns_run2_refined_first_order/`. Wall time **7 min 16 s** for 30127 steps (dt 3.8e-4 -> 1.4e-4 as the cells near the planet fill with Na+), i.e.
+**14.5 ms/step, 87 s per unit of nondimensional time**, divB <= 4.2e-13, stable.
+Legacy logs (`tmp/DATA/M2*.o*`, 56 ranks, 524880 cells, dt = 3.2e-5 constant):
+| | legacy MPCNS_Mercury | MercuryUns (refined, first order) |
+|---|---|---|
+| cells (fluid) | 524880 (0.525 MDOF) | 124999 (115495 fluid) |
+| dt | 3.2e-5 | 3.8e-4 .. 1.4e-4 |
+| wall per step | 0.20 s (run 1, t 0-60), 0.114 s (continuations) | 14.5 ms |
+| wall per cell-step | 3.9e-7 s (run 1) / 2.2e-7 s (continuations) | 1.16e-7 s |
+| wall per unit time | 6900 s (run 1) / 3550 s (continuations) | 87 s |
+Per step the new code is 8-14x faster, per cell-step 2-3x faster, and per unit of simulated time 40-80x faster (4x fewer cells and a 4-10x larger dt).
+Caveats: different machines (legacy: InfiniBand cluster, Intel; here: one 256-core node, shared memory MPI), the legacy logs include its I/O, implicit
+resistive PETSc solves and Hall subcycling settings, our scheme is first order with a coarser mesh (the legacy flux is also first-order Rusanov). The
+per-cell figure is the fairest one; the per-time figure mostly reflects the mesh and dt.
+State at t = 30 against the legacy t = 24.5 (near the axis, cylinder radius 0.3): dayside x 1.0-1.1 rho_H 0.36 / 0.28, rho_Na 0.23 / 0.87;
+x 1.3-1.6 rho_H 2.12 / 2.32; x 1.6-1.8 u 0.37 / 0.26; tail x -2..-1.2 rho_H 0.052 / 0.041, x -4..-3 rho_H 0.085 / 0.057 (ours / legacy);
+Na+ mass 3.94 / 6.62, min rho_H 0.0102 / 0.0061. The refinement moved everything toward the legacy values (coarse run: Na near the planet 0.10, tail
+rho_H 0.083, min rho_H 0.043) but near-planet Na+ is still 4x lower.
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and
