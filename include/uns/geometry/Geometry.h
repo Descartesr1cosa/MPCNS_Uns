@@ -13,6 +13,8 @@
 //    of c containing e.  Their vector areas are oriented along the edge direction.
 //    w_{e,c} = |dual share of c| / |dual of e| (sums to 1 over the cells at e) is the
 //    weight used to average cell quantities onto edges for any edge valence.
+//    w_{e,f} = (pieces of both cells adjacent to f) / |dual of e| is the analogous weight for
+//    face quantities (face-candidate EMF); it sums to 1 over the faces at e.
 #include <string>
 #include <vector>
 
@@ -33,6 +35,7 @@ struct Geometry
     std::vector<std::int64_t> ec_ptr;   // edge -> incident cells (CSR)
     std::vector<Id> ec_cell;
     std::vector<double> ec_weight;      // w_{e,c}
+    std::vector<double> ef_weight;      // w_{e,f}: share of face f in the dual face of e, aligned with cx.e2f
     std::vector<int> ec_misoriented;    // # dual pieces with negative projection on the edge (per edge)
 
     // Diagonal Hodge stars (all strictly positive for a valid mesh).

@@ -78,6 +78,7 @@ Geometry compute_geometry(const Mesh &m)
         g.ec_ptr[e + 1] = static_cast<std::int64_t>(g.ec_cell.size());
     }
     g.ec_weight.assign(g.ec_cell.size(), 0.0);
+    g.ef_weight.assign(cx.e2f.idx.size(), 0.0);
     std::vector<double> dual_len_face(nf, 0.0);
 
     std::vector<Id> cn;
@@ -142,6 +143,8 @@ Geometry compute_geometry(const Mesh &m)
                 const auto lo = g.ec_cell.begin() + g.ec_ptr[e], hi = g.ec_cell.begin() + g.ec_ptr[e + 1];
                 const auto it = std::lower_bound(lo, hi, c);
                 g.ec_weight[it - g.ec_cell.begin()] += norm(piece);
+                const auto flo = cx.e2f.idx.begin() + cx.e2f.begin(e), fhi = cx.e2f.idx.begin() + cx.e2f.end(e);
+                g.ef_weight[std::lower_bound(flo, fhi, f) - cx.e2f.idx.begin()] += norm(piece);
             }
         }
         g.cell_volume[c] = vol;
@@ -154,7 +157,10 @@ Geometry compute_geometry(const Mesh &m)
         double s = 0;
         for (std::int64_t k = g.ec_ptr[e]; k < g.ec_ptr[e + 1]; ++k) s += g.ec_weight[k];
         if (s > 0)
+        {
             for (std::int64_t k = g.ec_ptr[e]; k < g.ec_ptr[e + 1]; ++k) g.ec_weight[k] /= s;
+            for (std::int64_t k = cx.e2f.begin(e); k < cx.e2f.end(e); ++k) g.ef_weight[k] /= s;
+        }
         g.star1[e] = g.edge_len[e] > 0 ? norm(g.edge_dual_area[e]) / g.edge_len[e] : 0.0;
     }
     for (Id f = 0; f < nf; ++f)

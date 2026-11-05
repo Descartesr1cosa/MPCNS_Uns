@@ -10,6 +10,17 @@ uns_add_test(test_partition uns_partition uns_generate uns_geometry uns_complex)
 uns_add_test(test_distribute uns_parallel uns_partition uns_generate uns_geometry uns_complex)
 uns_add_test(test_io uns_io uns_parallel uns_partition uns_generate uns_geometry uns_complex)
 
+if(TARGET mercury_core)
+  add_executable(test_ideal_emf test_ideal_emf.cpp)
+  uns_target_defaults(test_ideal_emf)
+  target_include_directories(test_ideal_emf PRIVATE ${PROJECT_SOURCE_DIR}/MercuryUns)
+  target_link_libraries(test_ideal_emf PRIVATE mercury_core uns_refine uns_partition uns_generate)
+  foreach(n 1 4 7)
+    add_test(NAME test_ideal_emf_np${n}
+             COMMAND ${MPIEXEC_EXECUTABLE} --allow-run-as-root --oversubscribe ${MPIEXEC_NUMPROC_FLAG} ${n} $<TARGET_FILE:test_ideal_emf>)
+  endforeach()
+endif()
+
 if(TARGET uns_comm)
   add_executable(test_comm_mpi test_comm_mpi.cpp)
   uns_target_defaults(test_comm_mpi)

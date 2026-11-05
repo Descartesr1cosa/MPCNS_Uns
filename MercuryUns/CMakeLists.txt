@@ -4,6 +4,7 @@ add_library(mercury_core STATIC
     state/FieldSet.cpp
     induction/Faraday.cpp
     induction/EdgeEMF.cpp
+    induction/IdealEMF.cpp
     diagnostics/DivB.cpp
     hall/HallEMF.cpp)
 uns_target_defaults(mercury_core)

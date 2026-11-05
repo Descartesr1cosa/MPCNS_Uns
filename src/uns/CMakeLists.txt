@@ -6,7 +6,7 @@ endfunction()
 
 uns_add_lib(uns_core core/Params.cpp)
 uns_add_lib(uns_complex  complex/Incidence.cpp complex/CellComplex.cpp complex/ComplexBuilder.cpp complex/Validate.cpp)
-uns_add_lib(uns_geometry geometry/Geometry.cpp)
+uns_add_lib(uns_geometry geometry/Geometry.cpp geometry/Reconstruct.cpp)
 target_link_libraries(uns_geometry PUBLIC uns_complex)
 uns_add_lib(uns_generate generate/HexMesh.cpp generate/BoxMesh.cpp generate/CubedSphereMesh.cpp)
 target_link_libraries(uns_generate PUBLIC uns_complex)
