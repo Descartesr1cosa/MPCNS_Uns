@@ -30,6 +30,7 @@ struct Scales
     double a4 = 0;                      // drag: L_ref / U_ref
     double a5 = 0, a6 = 0;              // temperature relaxation / energy of the new ions
     double pressure_coef = 0;           // ambipolar: (rho_ref U_ref) / (q_e L_ref B_ref n_ref)
+    double hall_coef = 0;               // B_ref M_ref / (U q L mu0 rho_ref N_A): E_Hall = hall_coef / n_e,eff * (J x B)
     double inver_Rem = 0;               // eta_max / (mu0 U_ref L_ref): nondimensional magnetic diffusivity
 
     // From the legacy-style physical reference values (U_ref, T_ref, n_ref, ... see MercuryUns/INPUT/setup.txt).

@@ -7,6 +7,7 @@ add_library(mercury_core STATIC
     induction/IdealEMF.cpp
     induction/Current.cpp
     induction/Resistive.cpp
+    induction/ImplicitInduction.cpp
     physics/Exosphere.cpp
     physics/Gyration.cpp
     physics/Ambipolar.cpp

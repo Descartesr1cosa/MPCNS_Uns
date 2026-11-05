@@ -24,6 +24,13 @@ Config Config::from_params(const uns::Params &p)
     c.chem.Tn0 = p.get_double("Tn0", c.chem.Tn0);
     c.ambipolar = p.get_bool("is_Ambipolar_Efield", false);
     c.resistive = p.get_bool("is_Mercury_resistance", false);
+    c.time_order = p.get_int("time_order", 2);
+    c.hall = p.get_bool("is_Hall_Efield", false);
+    c.hall_r_min = p.get_double("r_min", c.hall_r_min);
+    c.hall_r_max = p.get_double("r_max", c.hall_r_max);
+    c.ind_rtol = p.get_double("induction_rtol", c.ind_rtol);
+    c.ind_max_it = p.get_int("induction_max_it", c.ind_max_it);
+    c.ind_restart = p.get_int("induction_restart", c.ind_restart);
     c.eta_r_inner = p.get_double("mercury_eta_r_inner", c.eta_r_inner);
     c.eta_r_outer = p.get_double("mercury_eta_r_outer", c.eta_r_outer);
     c.eta_width = p.get_double("mercury_eta_width", c.eta_width);

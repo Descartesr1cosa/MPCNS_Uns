@@ -32,7 +32,7 @@ void make_dir(const std::string &d)
 } // namespace
 
 Solver::Solver(MPI_Comm comm, const LocalMesh &lm, const Config &cfg)
-    : comm_(comm), lm_(lm), cfg_(cfg), geo_(compute_geometry(lm.mesh)), ex_(comm, lm), emf_(lm, geo_, ex_), amb_(lm, geo_), res_(lm, geo_, ex_, cfg),
+    : comm_(comm), lm_(lm), cfg_(cfg), geo_(compute_geometry(lm.mesh)), ex_(comm, lm), emf_(lm, geo_, ex_), amb_(lm, geo_), res_(lm, geo_, ex_, cfg), ind_(lm, geo_, ex_, cfg),
       bc_(BoundaryInfo::build(lm, geo_, cfg)), stencil_(lm, geo_, bc_), active_(active_faces(lm.mesh.cx))
 {
     MPI_Comm_rank(comm, &rank_);
@@ -141,8 +141,6 @@ void Solver::rhs(State &s, Rhs &r)
     in.phi_ind = s.Phi.data();
     add_ideal_emf(lm_, geo_, in, cfg_.ideal, r.E.data());
     if (cfg_.ambipolar) amb_.add(cfg_, W_[0].data(), W_[1].data(), r.E.data());
-    HallConfig hall;
-    add_hall_emf(hall, emf_, r.E.data());
     const Vec3 E_inf = -1.0 * cross(cfg_.u_inf, cfg_.B_imf);
     for (Id e = 0; e < cx.ent[1].n_owned; ++e)
     {
@@ -189,9 +187,57 @@ void Solver::advance(const State &base, const Rhs &r, double dt, State &out)
     enforce_floors(out);
 }
 
+double Solver::step_first_order(double dt_max)
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    const double t_start = MPI_Wtime();
+    prepare(s_);
+    double gdt = local_dt();
+    ex_.allreduce(&gdt, 1, MPI_MIN);
+    gdt = std::min(gdt, dt_max);
+    if (!std::isfinite(gdt) || gdt <= 0) throw std::runtime_error("invalid time step");
+    const bool split = cfg_.sc.induce_coeff > 0 && cfg_.lorentz_force;
+    if (split)
+    {
+        gyrate(lm_, cfg_, Btot_.data(), 0.5 * gdt, s_.U[0].data(), s_.U[1].data());
+        prepare(s_);
+    }
+    dt_cur_ = gdt;
+    rhs(s_, r0_); // fluid right-hand side and the explicit EMF (ideal + ambipolar, boundary values) at t^n
+    // fluid: forward Euler
+    for (int k = 0; k < 2; ++k)
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            for (int m = 0; m < 5; ++m) s_.U[k][5 * static_cast<std::size_t>(c) + m] += gdt * r0_.dU[k][5 * static_cast<std::size_t>(c) + m];
+        }
+    enforce_floors(s_);
+    // induction: implicit linear terms (resistivity, Hall) with the total EMF as the unknown, Phi only through d1(E)
+    std::vector<double> E = r0_.E;
+    if (ind_.active())
+    {
+        std::vector<double> ne(cx.n_cells(), 0.0);
+        for (Id c = 0; c < cx.n_cells(); ++c)
+            if (cx.cell_material[c] == kFluid) ne[c] = cfg_.sc.numinfo(W_[0][5 * static_cast<std::size_t>(c)], W_[1][5 * static_cast<std::size_t>(c)]).ne_eff;
+        ind_.set_frozen_state(Btot_.data(), ne.data());
+        std::vector<char> dir(cx.n_edges(), 0);
+        for (Id e = 0; e < cx.n_edges(); ++e) dir[e] = bc_.edge_mode[e] == 2;
+        double res = 0;
+        cg_total_ += ind_.solve(s_.Phi.data(), r0_.E.data(), dir, gdt, E.data(), &res);
+        ind_res_max_ = std::max(ind_res_max_, res);
+    }
+    faraday_update(cx, active_, E.data(), s_.Phi.data(), gdt);
+    if (split) gyrate(lm_, cfg_, Btot_.data(), 0.5 * gdt, s_.U[0].data(), s_.U[1].data());
+    time_ += gdt;
+    ++nstep_;
+    wall_s_ += MPI_Wtime() - t_start;
+    return gdt;
+}
+
 double Solver::step(double dt_max)
 {
     if (!initialized_) throw std::logic_error("Solver::step before initialize()");
+    if (cfg_.time_order == 1) return step_first_order(dt_max);
     const double t_start = MPI_Wtime();
     prepare(s_);
     double gdt = local_dt();
@@ -240,10 +286,25 @@ Diagnostics Solver::collect(double dt)
         sum[0] += s_.U[0][5 * static_cast<std::size_t>(c)] * geo_.cell_volume[c];
         sum[1] += s_.U[1][5 * static_cast<std::size_t>(c)] * geo_.cell_volume[c];
     }
+    double dth = 1e300;
+    if (cfg_.sc.hall_coef > 0)
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            const double r = norm(geo_.cell_center[c]);
+            if (r < cfg_.hall_r_min) continue; // outside the radial taper
+            double a = 0;
+            for (auto k = cx.c2f.begin(c); k < cx.c2f.end(c); ++k) a += geo_.face_area_mag[cx.c2f.idx[k]];
+            const double h = 6.0 * geo_.cell_volume[c] / a;
+            const double ne = cfg_.sc.numinfo(W_[0][5 * static_cast<std::size_t>(c)], W_[1][5 * static_cast<std::size_t>(c)]).ne_eff;
+            const double B = norm(Vec3(Btot_[3 * c], Btot_[3 * c + 1], Btot_[3 * c + 2]));
+            dth = std::min(dth, h * h * ne / (9.8696 * cfg_.sc.hall_coef * std::max(B, 1e-30)));
+        }
     double g[3], gs[2];
     MPI_Allreduce(&loc[0], &g[0], 1, MPI_DOUBLE, MPI_MAX, comm_);
     MPI_Allreduce(&loc[1], &g[1], 2, MPI_DOUBLE, MPI_MIN, comm_);
     MPI_Allreduce(sum, gs, 2, MPI_DOUBLE, MPI_SUM, comm_);
+    MPI_Allreduce(&dth, &d.dt_hall, 1, MPI_DOUBLE, MPI_MIN, comm_);
     d.div_b = g[0]; d.min_rho = g[1]; d.min_p = g[2]; d.mass_H = gs[0]; d.mass_Na = gs[1];
     return d;
 }
@@ -268,8 +329,8 @@ void Solver::reset_profile()
 void Solver::log(const Diagnostics &d) const
 {
     if (rank_ == 0)
-        std::printf("step %7ld  t=%.6e  dt=%.3e  divB=%.2e  min(rho_H)=%.3e  min(p_H)=%.3e  mass_H=%.8e  mass_Na=%.8e\n", d.step, d.time, d.dt,
-                    d.div_b, d.min_rho, d.min_p, d.mass_H, d.mass_Na);
+        std::printf("step %7ld  t=%.6e  dt=%.3e  divB=%.2e  min(rho_H)=%.3e  min(p_H)=%.3e  mass_H=%.8e  mass_Na=%.8e  dt_hall_explicit=%.2e\n", d.step, d.time, d.dt,
+                    d.div_b, d.min_rho, d.min_p, d.mass_H, d.mass_Na, d.dt_hall);
 }
 
 void Solver::run()

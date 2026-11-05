@@ -29,6 +29,11 @@ struct Config
     bool chemistry = false;         // Na+ photo-ionisation, drag, thermal relaxation (legacy source terms)
     ChemistryRates chem;
     bool ambipolar = false;         // electron-pressure force on the ions and ambipolar electric field
+    int time_order = 2;             // 2: SSP-RK2 (explicit EMF, resistive split step); 1: forward Euler + implicit induction (E unknown)
+    bool hall = false;              // Hall electric field (only with time_order = 1)
+    double hall_r_min = 1.0, hall_r_max = 1.012; // radial taper of the Hall term (legacy r_min / r_max)
+    double ind_rtol = 1e-6;         // implicit induction solve (GMRES)
+    int ind_max_it = 100, ind_restart = 20;
     bool resistive = false;         // Mercury interior resistivity (implicit, window eta_max * shape(r))
     double eta_r_inner = 0.84, eta_r_outer = 1.04, eta_width = 0.02;
     double res_rtol = 1e-6;

@@ -47,12 +47,19 @@ double dipole_a_m         5.0e2
 //--- physics switches
 bool   chemistry          1            // photo-ionisation (Exner exosphere), drag, thermal relaxation (sk1 = 5e-5, sk2 = 1e-5, Tn0 = 1000 K)
 bool   lorentz_force      1
+int    time_order         1            // 1: forward Euler + semi-implicit induction (Hall, resistivity; E is the unknown); 2: SSP-RK2 + resistive split step
+bool   is_Hall_Efield     1            // Hall electric field (time_order = 1)
+double r_min              1.0          // Hall radial taper (reference r_min / r_max)
+double r_max              1.012
+double induction_rtol     1e-3         // GMRES for the implicit induction solve (1e-6: 47 it/step, 1e-3: 19, same solution to 5 digits)
+int    induction_max_it   100
+int    induction_restart  20
 bool   is_Ambipolar_Efield 1
 bool   is_Mercury_resistance 1
 double mercury_eta_r_inner 0.84
 double mercury_eta_r_outer 1.04
 double mercury_eta_width  0.02
-double resistive_rtol     5e-3         // = reference implicit_resistive_ksp_rtol (max_it 20 there); own parallel CG
+double resistive_rtol     5e-3         // time_order=2 only (own parallel CG; reference implicit_resistive_ksp_rtol)
 int    resistive_max_it   200
 double cuct               0.5
 

@@ -17,6 +17,7 @@
 #include "hall/HallEMF.h"
 #include "induction/EdgeEMF.h"
 #include "induction/IdealEMF.h"
+#include "induction/ImplicitInduction.h"
 #include "induction/Resistive.h"
 #include "physics/Ambipolar.h"
 #include "uns/comm/Exchanger.h"
@@ -38,6 +39,7 @@ struct Diagnostics
     double div_b = 0;          // max over cells of |d2 B| / sum|B_f|  (global)
     double min_rho = 0, min_p = 0; // global minima over fluid cells (H+)
     double mass_H = 0, mass_Na = 0;
+    double dt_hall = 0;        // explicit whistler limit  min_c h_c^2 n_e / (pi^2 hall_coef |B|)  over the Hall-active cells (information only: the Hall term is implicit)
 };
 
 struct CostModelRecommendation
@@ -51,7 +53,8 @@ public:
     Solver(MPI_Comm comm, const uns::LocalMesh &lm, const Config &cfg);
     void initialize();              // initial state / background / boundary data (collective)
     void run();                     // time loop until t_end or max_steps, with logging and output
-    double step(double dt_max);     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
+    double step(double dt_max);     // dispatches on Config::time_order
+    double step_first_order(double dt_max);  // forward Euler fluid + semi-implicit induction (Hall, resistivity) with E as the unknown     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
     Diagnostics diagnostics();      // collective
     void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
     // Collective: gathers the per-rank timings / entity counts of the time loop, fits a fluid/solid/communication cost model by
@@ -102,6 +105,7 @@ private:
     EdgeEMF emf_;
     AmbipolarEMF amb_;
     ResistiveSolver res_;
+    ImplicitInduction ind_;
     BoundaryInfo bc_;
     Stencil stencil_;
     std::vector<char> active_;
@@ -113,6 +117,10 @@ private:
     std::vector<double> W_[2], grad_[2], uplus_, Bind_, Btot_, J_, PhiTot_, dpe_, photo_, vst_;
     double wall_s_ = 0, dt_cur_ = 0;
     long cg_total_ = 0;
+    double ind_res_max_ = 0;
+public:
+    double last_induction_residual() const { return ind_res_max_; }
+private:
     double time_ = 0;
     long nstep_ = 0;
     std::vector<std::pair<double, std::string>> pvd_;

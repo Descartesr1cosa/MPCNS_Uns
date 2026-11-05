@@ -105,6 +105,27 @@ x 1.3-1.6 rho_H 2.12 / 2.32; x 1.6-1.8 u 0.37 / 0.26; tail x -2..-1.2 rho_H 0.05
 Na+ mass 3.94 / 6.62, min rho_H 0.0102 / 0.0061. The refinement moved everything toward the legacy values (coarse run: Na near the planet 0.10, tail
 rho_H 0.083, min rho_H 0.043) but near-planet Na+ is still 4x lower.
 
+## Semi-implicit induction: ambipolar, Hall and Mercury resistivity (`time_order = 1`)
+Method (`induction/ImplicitInduction.*`, test `tests/test_implicit_induction.cpp`):
+- unknown = the total edge EMF `E` (1-cochain); `Phi^{n+1} = Phi^n - dt d1 E` is the only magnetic update, so **div B is preserved for any E, i.e. for any
+  linear-solver tolerance** (measured 1e-14 .. 4e-13 with rtol 1e-3);
+- `E = E_expl + F(Phi^{n+1})`, `E_expl` = ideal (UCT, arbitrary valence) + ambipolar EMF at t^n, boundary values (wall E = 0 before the implicit part, inflow E = -u x B_imf imposed
+  as Dirichlet, not an unknown); `F = M d1^T S2 Phi + H(Phi)`;
+- resistive part `M = eta/star1` (Mercury window 0.84/1.04/0.02, eta_nd = eta_max/(mu0 U L)), implicit in `Phi^{n+1}`;
+- Hall part `H(Phi)_e = sum_c w_{e,c} taper alpha_c (J_c[Phi] x B0_c).t_e`, `alpha_c = hall_coef/n_e,eff`, radial taper r_min..r_max = 1.0..1.012 (reference), `B0` = total cell field at
+  t^n frozen (linearised Hall), `J_c[Phi]` the Gauss curl of the cell field reconstructed from Phi; edge sum with the dual-face weights through the owner reduction (arbitrary valence);
+- linear system `(I + dt F d1) E = E_expl + F(Phi^n)`: nonsymmetric (Hall ~ skew, resistive SPD, spectrum in the right half plane) -> restarted GMRES(20), Jacobi right
+  preconditioner, matrix-free (one edge exchange per matvec); np-independent;
+- fluid: forward Euler; ion gyration by exact Strang-split rotation; Na+ photo-ionisation / drag / relaxation stay explicit: their rates (drag a4 vst = 3e-4, relaxation
+  a5.. ~1e-4, production 7 per unit time into a trace seed density) are 1e-4 .. 1e-1 of 1/dt (dt ~ 1e-4), i.e. not stiff — no implicit treatment added.
+Checks: Gaussian whistler packet (`omega = alpha B0 k^2`, `E_H = alpha J x B0`) against the exact Schroedinger-type solution: L2 error 0.19 (h=0.08) -> 0.072 (h=0.04), time error
+decreasing with dt; stable with dt = 77x the explicit whistler limit (energy only decreases); np = 1 and 4 identical to 1e-17.
+Mercury case: sparse mesh 28 ranks, t = 3: Hall off/on both stable, GMRES 19 it/step at rtol 1e-3 (47 at 1e-6, solution identical to 5 digits), 20 s per 3 time units.
+Refined mesh (125k cells, 56 ranks, t = 25 -> 26, `mercury.txt`): Hall off 3579 steps / 121 s, Hall on 3578 steps / 132 s (+9 %), 27 GMRES it/step,
+33.6 / 36.6 ms per step. The explicit whistler limit printed by the solver (`dt_hall_explicit`) is 5e-5 against fluid steps of 1e-4 .. 2e-4, so an explicit Hall term would cost
+2-4x more steps; the Hall term changes the state at t = 26 by only ~1 % (hall_coef = 1.3e-4: Hall is a small correction in these units).
+Not done: second-order time integration of the induction, Hall sub-cycling (not needed), tuning of the preconditioner (the Jacobi preconditioner ignores the L coupling).
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and

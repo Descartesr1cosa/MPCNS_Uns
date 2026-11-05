@@ -30,6 +30,7 @@ Scales Scales::from_params(const uns::Params &p)
     s.a5 = 3.0 * L * kB * n / (rho_ref * U * U * U);
     s.a6 = 1.0e6 * L * kB / (rho_ref * U * U * U * (s.gamma - 1.0));
     s.pressure_coef = rho_ref * U / (qe * L * B * n);
+    s.hall_coef = B * s.M_ref / (U * qe * L * mu0 * rho_ref * NA);
     s.inver_Rem = p.get_double("eta_max_mercury", 0.0) / (mu0 * U * L);
     return s;
 }

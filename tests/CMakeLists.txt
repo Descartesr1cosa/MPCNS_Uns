@@ -11,6 +11,14 @@ uns_add_test(test_distribute uns_parallel uns_partition uns_generate uns_geometr
 uns_add_test(test_io uns_io uns_parallel uns_partition uns_generate uns_geometry uns_complex)
 
 if(TARGET mercury_core)
+  add_executable(test_implicit_induction test_implicit_induction.cpp)
+  uns_target_defaults(test_implicit_induction)
+  target_include_directories(test_implicit_induction PRIVATE ${PROJECT_SOURCE_DIR}/MercuryUns)
+  target_link_libraries(test_implicit_induction PRIVATE mercury_core uns_partition uns_generate)
+  foreach(n 1 4)
+    add_test(NAME test_implicit_induction_np${n}
+             COMMAND ${MPIEXEC_EXECUTABLE} --allow-run-as-root --oversubscribe ${MPIEXEC_NUMPROC_FLAG} ${n} $<TARGET_FILE:test_implicit_induction>)
+  endforeach()
   add_executable(test_ideal_emf test_ideal_emf.cpp)
   uns_target_defaults(test_ideal_emf)
   target_include_directories(test_ideal_emf PRIVATE ${PROJECT_SOURCE_DIR}/MercuryUns)
