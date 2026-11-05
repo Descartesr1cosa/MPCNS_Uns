@@ -55,3 +55,5 @@ Pipeline (`tools/run_pipeline_demo.sh`): coarse run to t = 6 → refine from the
 - The cell-centred B is reconstructed with an area-weighted least-squares fit each stage (not cached); no performance tuning was done.
 - Rusanov (first-order dissipation) with only the plasma velocity and fast speed in the EMF dissipation; no entropy fix.
 - Hall limits (h² time step, sub-cycling) belong to the Hall work (docs/HallTodo.md).
+
+Steady-state (pseudo-time) mode, local time stepping and the multigrid correction: see `docs/Multigrid.md` (`steady=1`, `mg_levels`, ...).

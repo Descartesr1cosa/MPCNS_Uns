@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "Config.h"
+#include "induction/IdealEMF.h"
 #include "uns/comm/Exchanger.h"
 #include "uns/geometry/Geometry.h"
 #include "uns/parallel/LocalMesh.h"
@@ -27,18 +28,28 @@ class ImplicitInduction
 {
 public:
     ImplicitInduction(const uns::LocalMesh &lm, const uns::Geometry &geo, uns::comm::Exchanger &ex, const Config &cfg);
-    bool active() const { return resistive_ || hall_; }
+    bool active() const { return resistive_ || hall_ || ideal_; }
+    bool has_ideal() const { return ideal_; }
     bool has_hall() const { return hall_; }
 
     // Frozen data of the step: total cell field B0 (3 per local cell) and electron density n_e,eff per local cell (0 for non-fluid cells).
     void set_frozen_state(const double *B0_cell, const double *ne_eff_cell);
+
+    // Implicit ideal induction (cfg.implicit_ideal): the part of the ideal EMF that is linear in the induced flux for frozen u (central average of
+    // u x B and the transverse upwind term, background field excluded) joins F.  `u_cell`: 3 per local cell (kept by pointer, must stay valid during solve),
+    // `mask[e] != 0`: edges that carry the ideal EMF (free edges; walls / inflow edges excluded).
+    void set_ideal_state(const double *u_cell, const std::vector<char> &mask);
+    // L(phi') for face fluxes valid on all local faces; result valid on all local edges (assembled).
+    void ideal_linear(const double *phi_all_faces, double *edge_out);
 
     // F(Phi') for face fluxes Phi' valid on ALL local faces; result valid on all local edges (assembled through the owners).
     void apply_F(const double *phi_all_faces, double *edge_out);
 
     // Solves for E (valid on all local edges).  `dirichlet[e] != 0`: E[e] = E_expl[e] is imposed.  Phi_n must be valid on all local faces.
     // Returns the number of GMRES iterations; `rel_res` receives the final relative residual.
-    int solve(const double *Phi_n, const double *E_expl, const std::vector<char> &dirichlet, double dt, double *E, double *rel_res = nullptr);
+    // `dt_edge` (optional, one value per local edge) replaces the scalar dt: local pseudo-time stepping, system (I + F d1 diag(dt_e)) E = ...
+    int solve(const double *Phi_n, const double *E_expl, const std::vector<char> &dirichlet, double dt, double *E, double *rel_res = nullptr,
+              const double *dt_edge = nullptr);
 
 private:
     void apply_A(const std::vector<double> &x, std::vector<double> &y, double dt);
@@ -50,8 +61,13 @@ private:
     const uns::LocalMesh &lm_;
     const uns::Geometry &geo_;
     uns::comm::Exchanger &ex_;
-    bool resistive_, hall_;
+    bool resistive_, hall_, ideal_ = false;
+    IdealParams ideal_prm_;
+    const double *u_ideal_ = nullptr;
+    std::vector<char> ideal_mask_;
+    std::vector<double> ide_;
     double rtol_, hall_coef_ = 0;
+    const double *dte_ = nullptr;             // per-edge pseudo-time step during solve() (null: scalar dt)
     int max_it_, restart_;
 
     std::vector<double> m_;                   // eta_e / star1_e (0 outside the resistive window)

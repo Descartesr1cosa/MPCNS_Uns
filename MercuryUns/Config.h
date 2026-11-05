@@ -43,6 +43,24 @@ struct Config
     bool lorentz_force = true;      // J x B and induce source terms in the momentum/energy equations
     IdealParams ideal;              // UCT strength of the ideal EMF
 
+    // ---- steady-state (pseudo-time) mode: local time stepping and optional multigrid (docs/Multigrid.md)
+    bool steady = false;            // every cell advances with its own CFL step; B by B -= d1(dt_e E) with dt_e = min over the cells at the edge
+    double steady_tol = 0.0;        // stop when the relative residual rates of H+ and B drop below this (0: run to max_Nstep)
+    double lts_solid_dt = 1.0;      // pseudo step of edges without fluid cells (resistive solid), in units of the largest fluid step
+    double lts_max_ratio = 0.0;     // cap of the cell step at ratio * (smallest step): 1 reproduces the global step (test), 0 = no cap
+    bool implicit_ideal = false;    // steady mode: ideal induction (linear in B for frozen u) treated implicitly, uniform edge step lts_b_ratio * dt_min
+    double lts_b_ratio = 0.0;       // cap of the EDGE step (induction) at ratio * (smallest step); 0 = none, 1 = B advances with the global step (diagnostic)
+    double lts_smooth = 0.0;        // gradient limit of the pseudo step field: dt_c <= (1 + kappa) dt_neighbour (0: off).  Smooth dt keeps the CT term grad(dt) x E small
+    bool debug_res = false;         // print the face with the largest relative B rate at every report
+    int mg_levels = 0;              // 0: no multigrid; otherwise the number of levels incl. the fine one (agglomeration FAS, see multigrid/)
+    int mg_pre = 1, mg_post = 1, mg_coarse = 2; // smoothing steps (fine level) before / after the coarse-grid correction, sweeps on the coarse levels
+    int mg_cycle_every = 1;         // one coarse-grid correction every N fine pseudo steps
+    long mg_start = 0;              // first pseudo step with a coarse-grid correction (the fine smoother alone carries the initial transient)
+    double mg_growth = 2.0;         // a correction may raise rho and the internal energy of a cell by at most this factor (0: no cap)
+    double mg_relax = 1.0;          // damping of the prolonged correction
+    int mg_agglom_passes = 2;       // heavy-face matching passes per level (cluster size ~ 2^passes)
+    int mg_min_clusters = 8;        // stop coarsening below this many clusters per rank
+
     // ---- run control
     long max_steps = 1000000;
     double t_end = 1.0;

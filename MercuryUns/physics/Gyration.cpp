@@ -8,15 +8,19 @@ namespace mercury
 {
 using namespace uns;
 
-void gyrate(const LocalMesh &lm, const Config &cfg, const double *B, double dt, double *UH, double *UNa)
+void gyrate(const LocalMesh &lm, const Config &cfg, const double *B, double dt, double *UH, double *UNa, const double *dt_cell)
+{
+    gyrate_n(lm.mesh.cx.ent[3].n_owned, lm.mesh.cx.cell_material.data(), cfg, B, dt, UH, UNa, dt_cell);
+}
+
+void gyrate_n(Id n, const int *material, const Config &cfg, const double *B, double dt, double *UH, double *UNa, const double *dt_cell)
 {
     const Scales &sc = cfg.sc;
     if (sc.induce_coeff <= 0 || !cfg.lorentz_force) return;
-    const CellComplex &cx = lm.mesh.cx;
     const double aH = sc.induce_coeff * sc.M_ref / sc.M_H, aN = sc.induce_coeff * sc.M_ref / sc.M_Na;
-    for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+    for (Id c = 0; c < n; ++c)
     {
-        if (cx.cell_material[c] == kSolid) continue;
+        if (material && material[c] == kSolid) continue;
         double *uh = UH + 5 * static_cast<std::size_t>(c), *un = UNa + 5 * static_cast<std::size_t>(c);
         const Prim wh = to_prim(uh, sc.gamma, cfg.rho_floor, cfg.p_floor), wn = to_prim(un, sc.gamma, cfg.rho_floor, cfg.p_floor);
         const NumInfo ni = sc.numinfo(uh[0], un[0]);
@@ -28,7 +32,7 @@ void gyrate(const LocalMesh &lm, const Config &cfg, const double *B, double dt, 
         const Vec3 uH_(wh.u, wh.v, wh.w), uN_(wn.u, wn.v, wn.w);
         const Vec3 w = uH_ - uN_;
         const Vec3 w_par = dot(w, bh) * bh, w_perp = w - w_par;
-        const double th = denom * bm * dt;
+        const double th = denom * bm * (dt_cell ? dt * dt_cell[c] : dt);
         const Vec3 dw = (std::cos(th) - 1.0) * w_perp + std::sin(th) * cross(w_perp, bh);
         const double fH = aH * ni.chiNa / denom, fN = aN * ni.chiH / denom;
         const Vec3 dH = fH * dw, dN = -fN * dw;

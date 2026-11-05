@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace mercury
 {
@@ -74,15 +75,22 @@ void fluid_flux_rhs(const LocalMesh &lm, const Geometry &geo, const BoundaryInfo
 }
 
 void add_sources(const LocalMesh &lm, const Config &cfg, int s, const double *WH, const double *WNa, const double *up, const double *B,
-                 const double *J, const SourceFields &sf, double dt, double *rhs)
+                 const double *J, const SourceFields &sf, double dt, double *rhs, const double *dt_cell)
 {
     const CellComplex &cx = lm.mesh.cx;
+    add_sources_n(cx.ent[3].n_owned, cx.cell_material.data(), cfg, s, WH, WNa, up, B, J, sf, dt, rhs, dt_cell);
+}
+
+void add_sources_n(Id n, const int *material, const Config &cfg, int s, const double *WH, const double *WNa, const double *up, const double *B,
+                   const double *J, const SourceFields &sf, double dt, double *rhs, const double *dt_cell)
+{
     const Scales &sc = cfg.sc;
     const double *W = s == 0 ? WH : WNa;
-    for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+    for (Id c = 0; c < n; ++c)
     {
-        if (cx.cell_material[c] == kSolid) continue;
+        if (material && material[c] == kSolid) continue;
         const std::size_t i = c;
+        const double dtc = dt_cell ? dt_cell[i] : dt;
         const NumInfo ni = sc.numinfo(WH[5 * i], WNa[5 * i]);
         const double ns = s == 0 ? ni.nH : ni.nNa, ws = s == 0 ? ni.wH : ni.wNa;
         const double rho = std::max(W[5 * i], 0.0);
@@ -97,7 +105,7 @@ void add_sources(const LocalMesh &lm, const Config &cfg, int s, const double *WH
         }
         if (cfg.ambipolar && sf.dpe) S -= ws * Vec3(sf.dpe[3 * i], sf.dpe[3 * i + 1], sf.dpe[3 * i + 2]);
         r[1] += S.x; r[2] += S.y; r[3] += S.z;
-        r[4] += dot(u, S) + (rho > 1e-30 ? 0.5 * dt * dot(S, S) / rho : 0.0); // work with the mid-point velocity
+        r[4] += dot(u, S) + (rho > 1e-30 ? 0.5 * dtc * dot(S, S) / rho : 0.0); // work with the mid-point velocity
         if (cfg.chemistry && sf.vst)
         {
             const double vst = sf.vst[i], u2 = dot(u, u);
@@ -118,13 +126,15 @@ void add_sources(const LocalMesh &lm, const Config &cfg, int s, const double *WH
     }
 }
 
-double local_time_step(const LocalMesh &lm, const Geometry &geo, const Config &cfg, const double *WH, const double *WNa, const double *B)
+void cell_time_steps(const LocalMesh &lm, const Geometry &geo, const Config &cfg, const double *WH, const double *WNa, const double *B, double *dtc)
 {
     const CellComplex &cx = lm.mesh.cx;
-    double dt = std::numeric_limits<double>::infinity();
+    const double inf = std::numeric_limits<double>::infinity();
+    for (Id c = 0; c < cx.n_cells(); ++c) dtc[c] = 0.0;
     for (Id c = 0; c < cx.ent[3].n_owned; ++c)
     {
         if (cx.cell_material[c] == kSolid) continue;
+        double dt = inf;
         const Vec3 b(B[3 * c], B[3 * c + 1], B[3 * c + 2]);
         const double B2 = dot(b, b);
         // dt <= cfl V / sum_f (|u_s.n| + c_s,fast) A for each species.  The Lorentz force acts on the ions in proportion to their
@@ -155,7 +165,17 @@ double local_time_step(const LocalMesh &lm, const Geometry &geo, const Config &c
             }
             if (denom > 0) dt = std::min(dt, cfg.cfl * geo.cell_volume[c] / denom);
         }
+        dtc[c] = dt;
     }
+}
+
+double local_time_step(const LocalMesh &lm, const Geometry &geo, const Config &cfg, const double *WH, const double *WNa, const double *B)
+{
+    std::vector<double> d(lm.mesh.cx.n_cells());
+    cell_time_steps(lm, geo, cfg, WH, WNa, B, d.data());
+    double dt = std::numeric_limits<double>::infinity();
+    for (Id c = 0; c < lm.mesh.cx.ent[3].n_owned; ++c)
+        if (lm.mesh.cx.cell_material[c] != kSolid) dt = std::min(dt, d[c]);
     return dt;
 }
 } // namespace mercury

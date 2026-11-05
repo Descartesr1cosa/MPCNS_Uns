@@ -70,7 +70,21 @@ void Solver::initialize()
     }
     r0_.E.assign(cx.n_edges(), 0.0);
     r1_.E.assign(cx.n_edges(), 0.0);
+    dtc_.assign(nc, 0.0);
+    dts_.assign(nc, 0.0);
+    dte_.assign(cx.n_edges(), 0.0);
     nstep_ = 0;
+    if (cfg_.steady && cfg_.mg_levels > 1)
+    {
+        mg_ = std::make_unique<Multigrid>(comm_, lm_, geo_, bc_, ex_, cfg_, fs_);
+        const std::vector<long> sz = mg_->global_sizes();
+        if (rank_ == 0)
+        {
+            std::printf("multigrid: %d levels, clusters per level:", mg_->n_levels());
+            for (long n : sz) std::printf(" %ld", n);
+            std::printf("\n");
+        }
+    }
     initialized_ = true;
 }
 
@@ -112,7 +126,7 @@ double Solver::local_dt() const
     return local_time_step(lm_, geo_, cfg_, W_[0].data(), W_[1].data(), Btot_.data());
 }
 
-void Solver::rhs(State &s, Rhs &r)
+void Solver::rhs(State &s, Rhs &r, bool with_emf)
 {
     const CellComplex &cx = lm_.mesh.cx;
     for (int k = 0; k < 2; ++k)
@@ -129,8 +143,9 @@ void Solver::rhs(State &s, Rhs &r)
     SourceFields sf;
     sf.photo = photo_.data(); sf.vst = vst_.data(); sf.dpe = dpe_.data();
     for (int k = 0; k < 2; ++k)
-        add_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), sf, dt_cur_, r.dU[k].data());
+        add_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), sf, dt_cur_, r.dU[k].data(), cfg_.steady ? dtc_.data() : nullptr);
 
+    if (!with_emf) return;
     // EMF of the owned edges: ideal part now, the Hall term plugs in here later (hall/HallEMF.h)
     emf_.begin(r.E.data());
     IdealInputs in;
@@ -187,6 +202,26 @@ void Solver::advance(const State &base, const Rhs &r, double dt, State &out)
     enforce_floors(out);
 }
 
+
+// Relative residual rates of the step: the fluid rate dU[0]/dt of rho (r0_.dU, evaluated at U^n), volume weighted L2 over the owned fluid
+// cells, normalised by the same norm of rho; for B the rate (d1 E)_f of the face flux over the owned faces, normalised by the total flux.
+// Local sums only; collect() reduces them.
+void Solver::accumulate_residual_(const double *E)
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    for (double &v : res_loc_) v = 0.0;
+    for (int k = 0; k < 2; ++k)
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            const std::size_t i = c;
+            const double V = geo_.cell_volume[c];
+            res_loc_[2 * k] += V * r0_.dU[k][5 * i] * r0_.dU[k][5 * i];
+            res_loc_[2 * k + 1] += V * s_.U[k][5 * i] * s_.U[k][5 * i];
+        }
+}
+
+
 double Solver::step_first_order(double dt_max)
 {
     const CellComplex &cx = lm_.mesh.cx;
@@ -226,7 +261,11 @@ double Solver::step_first_order(double dt_max)
         cg_total_ += ind_.solve(s_.Phi.data(), r0_.E.data(), dir, gdt, E.data(), &res);
         ind_res_max_ = std::max(ind_res_max_, res);
     }
+    accumulate_residual_(E.data());
+    dtc_min_ = dtc_max_ = gdt;
+    const std::vector<double> phi_before(s_.Phi);
     faraday_update(cx, active_, E.data(), s_.Phi.data(), gdt);
+    accumulate_B_residual_(phi_before, nullptr, gdt);
     if (split) gyrate(lm_, cfg_, Btot_.data(), 0.5 * gdt, s_.U[0].data(), s_.U[1].data());
     time_ += gdt;
     ++nstep_;
@@ -234,9 +273,212 @@ double Solver::step_first_order(double dt_max)
     return gdt;
 }
 
+// B residual of the step just taken: rate |Phi^{n+1} - Phi^n| / dt_f per owned face (dt_f = mean step of its edges), relative to |Phi_tot|;
+// fluid faces and solid-only faces reported separately.  `before` = induced flux before the update.
+void Solver::accumulate_B_residual_(const std::vector<double> &before, const double *dt_edge, double dt_uniform)
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    worst_ = Worst();
+    for (Id f = 0; f < cx.ent[2].n_owned; ++f)
+    {
+        double dtf = 0; int n = 0;
+        for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) { dtf += dt_edge ? dt_edge[cx.f2e.idx[k]] : dt_uniform; ++n; }
+        dtf /= std::max(n, 1);
+        const double rate = (s_.Phi[f] - before[f]) / std::max(dtf, 1e-300);
+        bool fluid_face = false;
+        for (auto k = cx.f2c.begin(f); k < cx.f2c.end(f); ++k) fluid_face |= cx.cell_material[cx.f2c.idx[k]] == kFluid;
+        if (fluid_face)
+        {
+            res_loc_[4] += rate * rate; res_loc_[5] += PhiTot_[f] * PhiTot_[f];
+            const double rel = std::abs(rate) / (std::abs(PhiTot_[f]) + 1e-3);
+            if (rel > worst_.rel) { worst_.rel = rel; worst_.x = geo_.face_center[f]; worst_.circ = rate; worst_.phi = PhiTot_[f]; worst_.dt = dtf; worst_.f = f; }
+        }
+        else { res_loc_[6] += rate * rate; res_loc_[7] += PhiTot_[f] * PhiTot_[f]; }
+    }
+}
+
+// One FAS coarse-grid correction for the fluid (B frozen).  The fine pseudo-time rate (Step(U) - U)/dt_c of the fluid part (gyration Strang split + flux +
+// sources, no induction) is evaluated on a copy; the multigrid hierarchy returns the prolonged correction, applied with a positivity safeguard.
+void Solver::mg_correct_()
+{
+    const double t0 = MPI_Wtime();
+    const CellComplex &cx = lm_.mesh.cx;
+    const std::size_t nc = cx.n_cells();
+    const bool split = cfg_.sc.induce_coeff > 0 && cfg_.lorentz_force;
+    s2_.U[0] = s_.U[0]; s2_.U[1] = s_.U[1]; s2_.Phi = s_.Phi;
+    prepare(s2_);
+    if (split) { gyrate(lm_, cfg_, Btot_.data(), 0.5, s2_.U[0].data(), s2_.U[1].data(), dtc_.data()); prepare(s2_); }
+    rhs(s2_, r1_, false);
+    std::vector<double> rate[2], dU[2];
+    for (int k = 0; k < 2; ++k)
+    {
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            for (int m = 0; m < 5; ++m) s2_.U[k][5 * static_cast<std::size_t>(c) + m] += dtc_[c] * r1_.dU[k][5 * static_cast<std::size_t>(c) + m];
+        }
+    }
+    enforce_floors(s2_);
+    if (split) gyrate(lm_, cfg_, Btot_.data(), 0.5, s2_.U[0].data(), s2_.U[1].data(), dtc_.data());
+    for (int k = 0; k < 2; ++k)
+    {
+        rate[k].assign(5 * nc, 0.0);
+        dU[k].assign(5 * nc, 0.0);
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid || !(dtc_[c] > 0)) continue;
+            for (int m = 0; m < 5; ++m)
+            {
+                const std::size_t q = 5 * static_cast<std::size_t>(c) + m;
+                rate[k][q] = (s2_.U[k][q] - s_.U[k][q]) / dtc_[c];
+            }
+        }
+    }
+    const double *Uf[2] = {s_.U[0].data(), s_.U[1].data()}, *rf[2] = {rate[0].data(), rate[1].data()};
+    double *dd[2] = {dU[0].data(), dU[1].data()};
+    mg_->cycle(Uf, rf, Btot_.data(), J_.data(), dpe_.data(), photo_.data(), vst_.data(), dd);
+    for (int k = 0; k < 2; ++k)
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            double *u = &s_.U[k][5 * static_cast<std::size_t>(c)];
+            const double *e = &dU[k][5 * static_cast<std::size_t>(c)];
+            const double a = positivity_safeguard(u, e, cfg_.sc.gamma, 0.1, cfg_.mg_growth);
+            for (int m = 0; m < 5; ++m) u[m] += a * e[m];
+        }
+    enforce_floors(s_);
+    mg_wall_ += MPI_Wtime() - t0;
+}
+
+// Gradient limiter of the pseudo-step field: dt_c <- min(dt_c^CFL, (1 + kappa) min_nb dt_nb), neighbours through the interior faces.
+// The field of the previous iteration is the starting point, so one sweep per iteration is enough in the long run; the first call
+// iterates until nothing changes.  The CFL value is an upper bound, hence the limiter only ever reduces the step (stability is kept).
+void Solver::smooth_dt_(int sweeps)
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    const double kap = 1.0 + cfg_.lts_smooth;
+    std::vector<double> cfl(dtc_);
+    for (int s = 0; s < sweeps; ++s)
+    {
+        double changed = 0;
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            double d = cfl[c];
+            for (auto k = cx.c2f.begin(c); k < cx.c2f.end(c); ++k)
+            {
+                const Id f = cx.c2f.idx[k];
+                if (cx.f2c.count(f) != 2) continue;
+                const Id o = cx.f2c.idx[cx.f2c.begin(f)] == c ? cx.f2c.idx[cx.f2c.begin(f) + 1] : cx.f2c.idx[cx.f2c.begin(f)];
+                const double dn = dts_[o] > 0 ? dts_[o] : cfl[o];
+                if (dn > 0) d = std::min(d, kap * dn);
+            }
+            if (d != dts_[c]) changed = 1;
+            dtc_[c] = d;
+        }
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c) dts_[c] = dtc_[c];
+        ex_.forward(Dim::Cell, dts_.data(), 1);
+        ex_.allreduce(&changed, 1, MPI_MAX);
+        if (changed == 0) break;
+    }
+    for (Id c = 0; c < cx.n_cells(); ++c) dtc_[c] = dts_[c];
+}
+
+// Steady-state mode: every fluid cell advances with its own CFL step dtc (pseudo time).  Fluid: forward Euler per cell with Strang-split exact
+// gyration (angle from the cell step); induction: the implicit system (I + F d1 diag(dt_e)) E = E_expl + F(Phi^n) with the per-edge step
+// dt_e = min of dtc over the fluid cells at the edge (edges without fluid cells: lts_solid_dt * largest step), then B -= d1(dt_e E).
+// Only the 1-cochain dt_e E_e enters d1, so d2 B is preserved.  The fixed point of the iteration does not depend on dt except through the
+// Strang splitting of the gyration (second order in dt).
+double Solver::step_pseudo()
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    const double t_start = MPI_Wtime();
+    prepare(s_);
+    cell_time_steps(lm_, geo_, cfg_, W_[0].data(), W_[1].data(), Btot_.data(), dtc_.data());
+    ex_.forward(Dim::Cell, dtc_.data(), 1);
+    if (cfg_.lts_smooth > 0) smooth_dt_(nstep_ == 0 ? 200 : 1);
+    double g[2] = {1e300, 0.0};
+    for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        if (cx.cell_material[c] != kSolid) { g[0] = std::min(g[0], dtc_[c]); g[1] = std::min(g[1], -dtc_[c]); }
+    g[1] = -g[1];
+    double gmin = g[0], gmax = g[1];
+    ex_.allreduce(&gmin, 1, MPI_MIN);
+    ex_.allreduce(&gmax, 1, MPI_MAX);
+    if (!std::isfinite(gmin) || gmin <= 0 || gmin > 1e20) throw std::runtime_error("invalid time step (pseudo-time iteration diverged)");
+    if (cfg_.lts_max_ratio > 0)
+    {
+        gmax = 0;
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+            if (cx.cell_material[c] != kSolid) { dtc_[c] = std::min(dtc_[c], cfg_.lts_max_ratio * gmin); gmax = std::max(gmax, dtc_[c]); }
+        ex_.allreduce(&gmax, 1, MPI_MAX);
+        ex_.forward(Dim::Cell, dtc_.data(), 1);
+    }
+    dtc_min_ = gmin; dtc_max_ = gmax;
+    const double dt_solid = cfg_.lts_solid_dt * gmax;
+    for (Id e = 0; e < cx.n_edges(); ++e)
+    {
+        double d = 1e300;
+        for (auto k = geo_.ec_ptr[e]; k < geo_.ec_ptr[e + 1]; ++k)
+            if (dtc_[geo_.ec_cell[k]] > 0) d = std::min(d, dtc_[geo_.ec_cell[k]]);
+        dte_[e] = d < 1e299 ? d : dt_solid;
+        if (cfg_.lts_b_ratio > 0) dte_[e] = std::min(dte_[e], cfg_.lts_b_ratio * gmin);
+        if (cfg_.implicit_ideal) dte_[e] = std::max(cfg_.lts_b_ratio, 1.0) * gmin; // uniform: exact fixed point d1 E = 0
+    }
+    const bool split = cfg_.sc.induce_coeff > 0 && cfg_.lorentz_force;
+    if (split)
+    {
+        gyrate(lm_, cfg_, Btot_.data(), 0.5, s_.U[0].data(), s_.U[1].data(), dtc_.data());
+        prepare(s_);
+    }
+    dt_cur_ = gmin;
+    rhs(s_, r0_);
+    for (int k = 0; k < 2; ++k)
+        for (Id c = 0; c < cx.ent[3].n_owned; ++c)
+        {
+            if (cx.cell_material[c] == kSolid) continue;
+            for (int m = 0; m < 5; ++m) s_.U[k][5 * static_cast<std::size_t>(c) + m] += dtc_[c] * r0_.dU[k][5 * static_cast<std::size_t>(c) + m];
+        }
+    enforce_floors(s_);
+    std::vector<double> E = r0_.E;
+    if (ind_.active())
+    {
+        std::vector<double> ne(cx.n_cells(), 0.0);
+        for (Id c = 0; c < cx.n_cells(); ++c)
+            if (cx.cell_material[c] == kFluid) ne[c] = cfg_.sc.numinfo(W_[0][5 * static_cast<std::size_t>(c)], W_[1][5 * static_cast<std::size_t>(c)]).ne_eff;
+        ind_.set_frozen_state(Btot_.data(), ne.data());
+        std::vector<char> dir(cx.n_edges(), 0);
+        for (Id e = 0; e < cx.n_edges(); ++e) dir[e] = bc_.edge_mode[e] == 2;
+        double res = 0;
+        std::vector<double> Eexp = r0_.E;
+        if (ind_.has_ideal())
+        {
+            // E_expl' = E_expl - L(Phi^n): the linear part of the ideal EMF moves into the implicit operator
+            std::vector<char> mask(cx.n_edges(), 0);
+            for (Id e = 0; e < cx.n_edges(); ++e) mask[e] = bc_.edge_mode[e] == 0;
+            ind_.set_ideal_state(uplus_.data(), mask);
+            std::vector<double> Ln(cx.n_edges());
+            ind_.ideal_linear(s_.Phi.data(), Ln.data());
+            for (Id e = 0; e < cx.n_edges(); ++e) Eexp[e] -= Ln[e];
+        }
+        cg_total_ += ind_.solve(s_.Phi.data(), Eexp.data(), dir, gmin, E.data(), &res, dte_.data());
+        ind_res_max_ = std::max(ind_res_max_, res);
+    }
+    accumulate_residual_(E.data());
+    const std::vector<double> phi_before(s_.Phi);
+    faraday_update_edge_dt(cx, active_, E.data(), dte_.data(), s_.Phi.data());
+    accumulate_B_residual_(phi_before, dte_.data(), 0.0);
+    if (split) gyrate(lm_, cfg_, Btot_.data(), 0.5, s_.U[0].data(), s_.U[1].data(), dtc_.data());
+    time_ += gmin;
+    ++nstep_;
+    if (mg_ && nstep_ >= cfg_.mg_start && cfg_.mg_cycle_every > 0 && nstep_ % cfg_.mg_cycle_every == 0) mg_correct_();
+    wall_s_ += MPI_Wtime() - t_start;
+    return gmin;
+}
+
 double Solver::step(double dt_max)
 {
     if (!initialized_) throw std::logic_error("Solver::step before initialize()");
+    if (cfg_.steady) return step_pseudo();
     if (cfg_.time_order == 1) return step_first_order(dt_max);
     const double t_start = MPI_Wtime();
     prepare(s_);
@@ -305,6 +547,21 @@ Diagnostics Solver::collect(double dt)
     MPI_Allreduce(&loc[1], &g[1], 2, MPI_DOUBLE, MPI_MIN, comm_);
     MPI_Allreduce(sum, gs, 2, MPI_DOUBLE, MPI_SUM, comm_);
     MPI_Allreduce(&dth, &d.dt_hall, 1, MPI_DOUBLE, MPI_MIN, comm_);
+    double rs[8];
+    MPI_Allreduce(res_loc_, rs, 8, MPI_DOUBLE, MPI_SUM, comm_);
+    d.res_H = rs[1] > 0 ? std::sqrt(rs[0] / rs[1]) : 0.0;
+    d.res_Na = rs[3] > 0 ? std::sqrt(rs[2] / rs[3]) : 0.0;
+    d.res_B = rs[5] > 0 ? std::sqrt(rs[4] / rs[5]) : 0.0;
+    d.res_Bs = rs[7] > 0 ? std::sqrt(rs[6] / rs[7]) : 0.0;
+    d.dt_min = dtc_min_; d.dt_max = dtc_max_;
+    if (cfg_.debug_res)
+    {
+        struct { double v; int r; } in{worst_.rel, rank_}, out;
+        MPI_Allreduce(&in, &out, 1, MPI_DOUBLE_INT, MPI_MAXLOC, comm_);
+        if (rank_ == out.r) std::printf("   worst B-rate face: rel=%.3e rate=%.3e Phi=%.3e dt_f=%.2e at (%.3f %.3f %.3f) r=%.3f\n", worst_.rel, worst_.circ, worst_.phi, worst_.dt, worst_.x.x, worst_.x.y, worst_.x.z, norm(worst_.x));
+    }
+    if (nstep_ > step_last_) { d.ind_it = double(cg_total_ - cg_last_) / double(nstep_ - step_last_); cg_last_ = cg_total_; step_last_ = nstep_; }
+    d.ind_res = ind_res_max_; ind_res_max_ = 0;
     d.div_b = g[0]; d.min_rho = g[1]; d.min_p = g[2]; d.mass_H = gs[0]; d.mass_Na = gs[1];
     return d;
 }
@@ -329,8 +586,8 @@ void Solver::reset_profile()
 void Solver::log(const Diagnostics &d) const
 {
     if (rank_ == 0)
-        std::printf("step %7ld  t=%.6e  dt=%.3e  divB=%.2e  min(rho_H)=%.3e  min(p_H)=%.3e  mass_H=%.8e  mass_Na=%.8e  dt_hall_explicit=%.2e\n", d.step, d.time, d.dt,
-                    d.div_b, d.min_rho, d.min_p, d.mass_H, d.mass_Na, d.dt_hall);
+        std::printf("step %7ld  t=%.6e  dt=%.3e  divB=%.2e  min(rho_H)=%.3e  min(p_H)=%.3e  mass_H=%.8e  mass_Na=%.8e  dt_hall_explicit=%.2e  res_H=%.3e res_Na=%.3e res_B=%.3e res_Bsolid=%.3e dt_max=%.2e gmres_it=%.1f gmres_res=%.1e\n", d.step, d.time, d.dt,
+                    d.div_b, d.min_rho, d.min_p, d.mass_H, d.mass_Na, d.dt_hall, d.res_H, d.res_Na, d.res_B, d.res_Bs, d.dt_max, d.ind_it, d.ind_res);
 }
 
 void Solver::run()
@@ -340,10 +597,15 @@ void Solver::run()
     log(collect(0.0));
     if (cfg_.write_vtk) write_vtk();
     double dt = 0;
-    while (time_ < cfg_.t_end * (1.0 - 1e-12) && nstep_ < cfg_.max_steps)
+    while ((cfg_.steady || time_ < cfg_.t_end * (1.0 - 1e-12)) && nstep_ < cfg_.max_steps)
     {
         dt = step(cfg_.t_end - time_);
-        if (cfg_.log_every > 0 && nstep_ % cfg_.log_every == 0) log(collect(dt));
+        if (cfg_.log_every > 0 && nstep_ % cfg_.log_every == 0)
+        {
+            const Diagnostics dg = collect(dt);
+            log(dg);
+            if (cfg_.steady && cfg_.steady_tol > 0 && dg.res_H < cfg_.steady_tol && dg.res_B < cfg_.steady_tol) break;
+        }
         if (cfg_.output_every > 0 && nstep_ % cfg_.output_every == 0 && nstep_ >= cfg_.output_start && cfg_.write_vtk) write_vtk();
         if (cfg_.restart_every > 0 && nstep_ % cfg_.restart_every == 0) write_global_fields(cfg_.output_dir + "/fields_final.unsb");
     }

@@ -7,6 +7,7 @@
 // The Hall term is not part of this version (hall/HallEMF.h is a no-op hook).
 #include <mpi.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "induction/IdealEMF.h"
 #include "induction/ImplicitInduction.h"
 #include "induction/Resistive.h"
+#include "multigrid/Multigrid.h"
 #include "physics/Ambipolar.h"
 #include "uns/comm/Exchanger.h"
 #include "uns/geometry/Geometry.h"
@@ -39,6 +41,9 @@ struct Diagnostics
     double div_b = 0;          // max over cells of |d2 B| / sum|B_f|  (global)
     double min_rho = 0, min_p = 0; // global minima over fluid cells (H+)
     double mass_H = 0, mass_Na = 0;
+    double res_H = 0, res_Na = 0, res_B = 0, res_Bs = 0; // relative residual rates of the last step: |dU[0]/dt| (L2, volume weighted) / |U[0]|, and |dPhi/dt| / |Phi_tot|
+    double ind_it = 0, ind_res = 0;          // GMRES iterations per step since the last report, worst relative residual since then
+    double dt_min = 0, dt_max = 0;           // pseudo-time mode: smallest / largest cell step of the last step
     double dt_hall = 0;        // explicit whistler limit  min_c h_c^2 n_e / (pi^2 hall_coef |B|)  over the Hall-active cells (information only: the Hall term is implicit)
 };
 
@@ -53,7 +58,8 @@ public:
     Solver(MPI_Comm comm, const uns::LocalMesh &lm, const Config &cfg);
     void initialize();              // initial state / background / boundary data (collective)
     void run();                     // time loop until t_end or max_steps, with logging and output
-    double step(double dt_max);     // dispatches on Config::time_order
+    double step(double dt_max);     // dispatches on Config::steady / Config::time_order
+    double step_pseudo();           // local pseudo-time step (steady mode): cell steps dtc, edge steps dte = min over the cells at the edge
     double step_first_order(double dt_max);  // forward Euler fluid + semi-implicit induction (Hall, resistivity) with E as the unknown     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
     Diagnostics diagnostics();      // collective
     void write_vtk();               // collective: one .vtu per rank, .pvtu and .pvd
@@ -90,7 +96,7 @@ private:
     struct Rhs { std::vector<double> dU[2]; std::vector<double> E; };
     void prepare(State &s);                      // halo exchange + derived fields
     double local_dt() const;
-    void rhs(State &s, Rhs &r);                  // requires prepare(s)
+    void rhs(State &s, Rhs &r, bool with_emf = true); // requires prepare(s); with_emf=false: fluid + sources only
     void advance(const State &base, const Rhs &r, double dt, State &out);
     void enforce_floors(State &s) const;
     Diagnostics collect(double dt);
@@ -116,9 +122,22 @@ private:
     std::vector<double> PhiAdd_, BaddCell_;
     std::vector<double> W_[2], grad_[2], uplus_, Bind_, Btot_, J_, PhiTot_, dpe_, photo_, vst_;
     double wall_s_ = 0, dt_cur_ = 0;
-    long cg_total_ = 0;
+    long cg_total_ = 0, cg_last_ = 0, step_last_ = 0;
     double ind_res_max_ = 0;
+    std::vector<double> dtc_, dte_;           // pseudo-time: per-cell / per-edge step
+    double dtc_min_ = 0, dtc_max_ = 0;
+    double res_loc_[8] = {0, 0, 0, 0, 0, 0, 0, 0};  // local sums of the last step: sum V (dU0_H/dt)^2, sum V U0_H^2, same for Na, sum (dPhi/dt)^2, sum Phi^2
+    void mg_correct_();                         // one FAS coarse-grid correction of U (steady mode, mg_levels > 1)
+    std::unique_ptr<Multigrid> mg_;
+    double mg_wall_ = 0;
+    void smooth_dt_(int sweeps);                // gradient limiter of dtc_ (lts_smooth), forwards dtc_
+    std::vector<double> dts_;                   // smoothed step field of the previous iteration (persistent)
+    struct Worst { uns::Id f = -1; double rel = 0, circ = 0, phi = 0, dt = 0, pind = 0, dphi = 0; uns::Vec3 x; } worst_;
+    void accumulate_B_residual_(const std::vector<double> &before, const double *dt_edge, double dt_uniform);
+    void accumulate_residual_(const double *E); // after rhs(s_, r0_): residual rates of the step at U^n (before the update)
 public:
+    double multigrid_seconds() const { return mg_wall_; }
+    const Multigrid *multigrid() const { return mg_.get(); }
     double last_induction_residual() const { return ind_res_max_; }
 private:
     double time_ = 0;

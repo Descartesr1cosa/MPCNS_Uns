@@ -3,6 +3,7 @@
 add_library(mercury_core STATIC
     state/FieldSet.cpp
     induction/Faraday.cpp
+    multigrid/Multigrid.cpp
     induction/EdgeEMF.cpp
     induction/IdealEMF.cpp
     induction/Current.cpp

@@ -15,4 +15,6 @@ namespace mercury
 std::vector<char> active_faces(const uns::CellComplex &cx);
 
 void faraday_update(const uns::CellComplex &cx, const std::vector<char> &active, const double *E, double *B, double dt);
+// Local (pseudo-)time stepping: B -= d1(dt_e E) with a per-edge step; still divergence free because only the 1-cochain dt_e E_e enters d1.
+void faraday_update_edge_dt(const uns::CellComplex &cx, const std::vector<char> &active, const double *E, const double *dt_edge, double *B);
 } // namespace mercury

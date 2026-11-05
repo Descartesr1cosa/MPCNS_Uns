@@ -13,6 +13,8 @@
 
 namespace mercury
 {
-// UH, UNa: 5 per cell; B: total cell field (3 per cell).  Acts on the owned fluid cells.
-void gyrate(const uns::LocalMesh &lm, const Config &cfg, const double *Btot, double dt, double *UH, double *UNa);
+// UH, UNa: 5 per cell; B: total cell field (3 per cell).  Acts on the owned fluid cells; with dt_cell (per cell) the angle uses dt * dt_cell[c] (pseudo-time: dt is then the fraction, e.g. 0.5).
+void gyrate(const uns::LocalMesh &lm, const Config &cfg, const double *Btot, double dt, double *UH, double *UNa, const double *dt_cell = nullptr);
+// The same on a plain list of n cells (multigrid levels); `material` (nullable) marks solid cells to skip.
+void gyrate_n(uns::Id n, const int *material, const Config &cfg, const double *Btot, double dt, double *UH, double *UNa, const double *dt_cell = nullptr);
 } // namespace mercury

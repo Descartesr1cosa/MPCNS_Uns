@@ -8,7 +8,7 @@ namespace mercury
 using namespace uns;
 
 ImplicitInduction::ImplicitInduction(const LocalMesh &lm, const Geometry &geo, comm::Exchanger &ex, const Config &cfg)
-    : lm_(lm), geo_(geo), ex_(ex), resistive_(cfg.resistive && cfg.sc.inver_Rem > 0), hall_(cfg.hall && cfg.sc.hall_coef > 0), rtol_(cfg.ind_rtol),
+    : lm_(lm), geo_(geo), ex_(ex), resistive_(cfg.resistive && cfg.sc.inver_Rem > 0), hall_(cfg.hall && cfg.sc.hall_coef > 0), ideal_(cfg.implicit_ideal), ideal_prm_(cfg.ideal), rtol_(cfg.ind_rtol),
       max_it_(cfg.ind_max_it), restart_(std::max(2, cfg.ind_restart)), use_ilu_(cfg.ind_ilu), shift_(cfg.ind_ilu_shift)
 {
     const CellComplex &cx = lm.mesh.cx;
@@ -96,9 +96,10 @@ ImplicitInduction::ImplicitInduction(const LocalMesh &lm, const Geometry &geo, c
     phi_.assign(cx.n_faces(), 0.0);
     bcell_.assign(3 * static_cast<std::size_t>(nc), 0.0);
     jcell_.assign(3 * static_cast<std::size_t>(nc), 0.0);
-    part_.assign(2 * static_cast<std::size_t>(ne), 0.0);
+    part_.assign(3 * static_cast<std::size_t>(ne), 0.0);
+    ide_.assign(ne, 0.0);
     tmp_.assign(ne, 0.0);
-    if (use_ilu_ && active()) build_precond_pattern();
+    if (use_ilu_ && active() && !ideal_) build_precond_pattern();
 }
 
 void ImplicitInduction::set_frozen_state(const double *B0, const double *ne_eff)
@@ -107,6 +108,20 @@ void ImplicitInduction::set_frozen_state(const double *B0, const double *ne_eff)
     for (std::size_t i = 0; i < B0_.size(); ++i) B0_[i] = B0[i];
     for (Id c = 0; c < cx.n_cells(); ++c)
         alpha_[c] = (hall_ && ne_eff[c] > 0) ? taper_[c] * hall_coef_ / ne_eff[c] : 0.0;
+}
+
+void ImplicitInduction::set_ideal_state(const double *u_cell, const std::vector<char> &mask)
+{
+    u_ideal_ = u_cell;
+    ideal_mask_ = mask;
+}
+
+void ImplicitInduction::ideal_linear(const double *phi, double *out)
+{
+    const bool h = hall_, r = resistive_;
+    hall_ = false; resistive_ = false; // reuse apply_F with only the ideal part switched on
+    apply_F(phi, out);
+    hall_ = h; resistive_ = r;
 }
 
 void ImplicitInduction::apply_F(const double *phi, double *out)
@@ -119,10 +134,9 @@ void ImplicitInduction::apply_F(const double *phi, double *out)
         for (Id f = 0; f < cx.ent[2].n_owned; ++f)
         {
             const double v = geo_.star2[f] * phi[f];
-            for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) part_[2 * static_cast<std::size_t>(cx.f2e.idx[k])] += cx.f2e.sgn[k] * v;
+            for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) part_[3 * static_cast<std::size_t>(cx.f2e.idx[k])] += cx.f2e.sgn[k] * v;
         }
-    if (hall_)
-    {
+    if (hall_ || ideal_)
         for (Id c = 0; c < nc; ++c) // cell field from the face fluxes
         {
             Vec3 b;
@@ -133,6 +147,16 @@ void ImplicitInduction::apply_F(const double *phi, double *out)
             }
             bcell_[3 * c] = b.x; bcell_[3 * c + 1] = b.y; bcell_[3 * c + 2] = b.z;
         }
+    if (ideal_ && u_ideal_)
+    {
+        IdealInputs in;
+        in.u_cell = u_ideal_; in.B_cell_tot = bcell_.data(); in.B_cell_ind = bcell_.data(); in.phi_tot = phi; in.phi_ind = phi;
+        std::fill(ide_.begin(), ide_.end(), 0.0);
+        add_ideal_emf(lm_, geo_, in, ideal_prm_, ide_.data());
+        for (Id e = 0; e < ne; ++e) part_[3 * static_cast<std::size_t>(e) + 2] = ideal_mask_[e] ? ide_[e] : 0.0;
+    }
+    if (hall_)
+    {
         for (Id c = 0; c < no; ++c)
         {
             if (alpha_[c] == 0.0) continue;
@@ -151,11 +175,11 @@ void ImplicitInduction::apply_F(const double *phi, double *out)
             }
             const Vec3 J = (1.0 / geo_.cell_volume[c]) * sum;
             const Vec3 g = alpha_[c] * cross(J, Vec3(B0_[3 * c], B0_[3 * c + 1], B0_[3 * c + 2]));
-            for (auto q = ce_ptr_[c]; q < ce_ptr_[c + 1]; ++q) part_[2 * static_cast<std::size_t>(ce_edge_[q]) + 1] += dot(g, ce_wt_[q]);
+            for (auto q = ce_ptr_[c]; q < ce_ptr_[c + 1]; ++q) part_[3 * static_cast<std::size_t>(ce_edge_[q]) + 1] += dot(g, ce_wt_[q]);
         }
     }
-    ex_.assemble_edges(part_.data(), 2);
-    for (Id e = 0; e < ne; ++e) out[e] = m_[e] * part_[2 * static_cast<std::size_t>(e)] + part_[2 * static_cast<std::size_t>(e) + 1];
+    ex_.assemble_edges(part_.data(), 3);
+    for (Id e = 0; e < ne; ++e) out[e] = m_[e] * part_[3 * static_cast<std::size_t>(e)] + part_[3 * static_cast<std::size_t>(e) + 1] + part_[3 * static_cast<std::size_t>(e) + 2];
 }
 
 void ImplicitInduction::apply_A(const std::vector<double> &x, std::vector<double> &y, double dt)
@@ -164,11 +188,13 @@ void ImplicitInduction::apply_A(const std::vector<double> &x, std::vector<double
     for (Id f = 0; f < cx.n_faces(); ++f) // Phi' = d1 x on every local face (all its edges are local)
     {
         double s = 0;
-        for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) s += cx.f2e.sgn[k] * x[cx.f2e.idx[k]];
+        if (dte_) for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) s += cx.f2e.sgn[k] * dte_[cx.f2e.idx[k]] * x[cx.f2e.idx[k]];
+        else for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) s += cx.f2e.sgn[k] * x[cx.f2e.idx[k]];
         phi_[f] = s;
     }
     apply_F(phi_.data(), tmp_.data());
-    for (std::size_t e = 0; e < y.size(); ++e) y[e] = x[e] + dt * tmp_[e];
+    if (dte_) for (std::size_t e = 0; e < y.size(); ++e) y[e] = x[e] + tmp_[e]; // d1 already carries dt_e
+    else for (std::size_t e = 0; e < y.size(); ++e) y[e] = x[e] + dt * tmp_[e];
 }
 
 double ImplicitInduction::dot_owned(const std::vector<double> &a, const std::vector<double> &b)
@@ -270,8 +296,9 @@ void ImplicitInduction::apply_precond(const std::vector<double> &v, std::vector<
     ex_.forward(Dim::Edge, z.data(), 1); // refresh the alias copies from the owners
 }
 
-int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const std::vector<char> &dir, double dt, double *E, double *rel_res)
+int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const std::vector<char> &dir, double dt, double *E, double *rel_res, const double *dt_edge)
 {
+    dte_ = dt_edge;
     const CellComplex &cx = lm_.mesh.cx;
     const Id ne = cx.n_edges();
     using Vecd = std::vector<double>;
@@ -286,8 +313,8 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
     for (Id e = 0; e < ne; ++e) r[e] = dir[e] ? 0.0 : b[e] - Ax[e];
     // Jacobi diagonal:  1 + dt m_e d2_e  (the Hall part has no useful diagonal)
     Vecd inv_diag(ne);
-    for (Id e = 0; e < ne; ++e) inv_diag[e] = 1.0 / (1.0 + dt * m_[e] * d2_[e]);
-    const bool ilu = use_ilu_ && !pc_ptr_.empty();
+    for (Id e = 0; e < ne; ++e) inv_diag[e] = 1.0 / (1.0 + (dte_ ? dte_[e] : dt) * m_[e] * d2_[e]);
+    const bool ilu = use_ilu_ && !pc_ptr_.empty() && !dte_; // ILU is built for a scalar dt
     if (ilu) factor_precond(dt, dir);
 
     const double bnorm = std::sqrt(std::max(dot_owned(b, b), 1e-300));
@@ -358,6 +385,7 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
     corr_.assign(ne, 0.0);
     for (Id e = 0; e < ne; ++e) corr_[e] = dir[e] ? 0.0 : E[e] - E_expl[e];
     if (rel_res) *rel_res = beta / bnorm;
+    dte_ = nullptr;
     return total;
 }
 } // namespace mercury
