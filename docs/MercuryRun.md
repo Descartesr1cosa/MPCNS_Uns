@@ -60,6 +60,30 @@ the repartition with the fitted weights did not change the balance measurably (1
   (the reference value, now the default in mercury.txt) gives 15.7 s;
 - at ~860 cells per rank the run is communication/latency bound (53 % wait even without the CG): fewer ranks (or a denser mesh) will be as fast per step.
 
+## Refinement from the flow field and speed test (first order)
+Coarse solution: `tmp/uns_run1_first_order/DATA/fields_final.unsb` (t = 25, 24192 cells). Refinement (`mpcns_pre task=refine`, max level 2, solid not refined, spherical snap):
+manual shells `1.0-1.12 -> level 2`, `1.12-1.35 -> level 1`, plus indicators `h|J|/|B| > 1 -> 1` and `h|grad rho|/rho > 0.5 -> 1`
+-> **124999 cells** (19359 / 29096 / 76544 at levels 0 / 1 / 2, 9743 polyhedra), first fluid layer 0.05 -> 0.0125 R_M, B transfer div B 3e-12.
+The cell fields are prolonged piecewise-constant by default (`refine_prolong_linear=0`): the limited linear prolongation of the conservative
+variables produced states that blew up in the first step (negative pressure / dt -> 1e-28). Command:
+```
+mpcns_pre setup.txt task=refine coarse_dir=<dir with global.unsb> coarse_fields=<fields_final.unsb> output_dir=<fine> proc_num=56 \
+   refine_max_level=2 refine_solid_max_level=0 refine_spherical_snap=1 "refine_region_1=shell 1.0 1.12 2" "refine_region_2=shell 1.12 1.35 1" \
+   "refine_indicator_1=current 1.0 1" "refine_indicator_2=density 0.5 1" [cost_profile=<coarse run>/load_profile.txt]
+mpirun -np 56 MercuryUns setup.txt mercury.txt geometry_dir=<fine> init_fields=<fine>/fine_fields.unsb second_order=0 ...
+```
+Speed (600 steps, first order, dt ~ 3.8e-4, wall/step = slowest rank compute + wait):
+| ranks | cells/rank | weights | wall/step | compute max/mean | wait |
+|---|---|---|---|---|---|
+| 28 | 4464 | default | 36.8 ms | 1.10 | 52 % |
+| 28 | 4464 | coarse-run profile | 35.0 ms | 1.14 | 49 % |
+| 56 | 2232 | default | 16.3 ms | 1.15 | 43 % |
+| 56 | 2232 | coarse-run profile | 16.2 ms | 1.12 | 43 % |
+| 84 | 1488 | default | 13.9 ms | 1.20 | 53 % |
+=> 56 ranks is the sensible choice (84 gains only 15 %). Estimated cost of a run to t = 25 from the coarse state at this dt: 66000 steps x 16 ms ~ 18 min.
+The coarse-run profile changes the step time by 0-5 % (within noise): at 2000-4000 cells per rank the balance is already ~1.1 and waiting
+(latency, the resistive CG collectives) is what remains. Not run: the long refined run, second order on the refined mesh.
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and

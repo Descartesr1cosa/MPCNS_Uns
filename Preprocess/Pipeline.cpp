@@ -290,7 +290,16 @@ int run_refine(const Params &p)
     for (const auto &kv : fields)
     {
         if (kv.second.dim != Dim::Cell) continue;
-        io::FieldRecord f{kv.first, Dim::Cell, kv.second.ncomp, prolong_cells(coarse, cg, kv.second.values, kv.second.ncomp, rr, fg, true)};
+        io::FieldRecord f{kv.first, Dim::Cell, kv.second.ncomp, {}};
+        if (p.get_bool("refine_prolong_linear", false))
+            f.values = prolong_cells(coarse, cg, kv.second.values, kv.second.ncomp, rr, fg, true); // limited linear, conservative
+        else // piecewise constant: positive and conservative by construction (conservative variables may leave the physical set under linear prolongation)
+        {
+            f.values.resize(static_cast<std::size_t>(rr.fine.cx.n_cells()) * kv.second.ncomp);
+            for (Id c = 0; c < rr.fine.cx.n_cells(); ++c)
+                for (int m = 0; m < kv.second.ncomp; ++m)
+                    f.values[static_cast<std::size_t>(c) * kv.second.ncomp + m] = kv.second.values[static_cast<std::size_t>(rr.parent_cell[c]) * kv.second.ncomp + m];
+        }
         vtk.push_back({f.name, f.ncomp, f.values});
         out_fields.push_back(std::move(f));
     }
