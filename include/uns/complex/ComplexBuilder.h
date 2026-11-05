@@ -20,6 +20,10 @@ public:
     // Tag a (boundary) face given any ordering of its nodes; applied by finish().
     void tag_face(const std::vector<Id> &nodes, int tag);
 
+    // Face id (creation order == final numbering) of the face with this node set, -1 if absent.
+    Id face_id(const std::vector<Id> &nodes) const;
+    Id n_faces() const { return static_cast<Id>(face_map_.size()); }
+
     CellComplex finish();
 
     // Rotate/reverse a loop to the canonical form (start at the smallest node,

@@ -91,6 +91,14 @@ void ComplexBuilder::tag_face(const std::vector<Id> &nodes, int tag)
     pending_tags_[key] = tag;
 }
 
+Id ComplexBuilder::face_id(const std::vector<Id> &nodes) const
+{
+    std::vector<Id> key = nodes;
+    std::sort(key.begin(), key.end());
+    auto it = face_map_.find(key);
+    return it == face_map_.end() ? -1 : it->second;
+}
+
 CellComplex ComplexBuilder::finish()
 {
     CellComplex cx;
