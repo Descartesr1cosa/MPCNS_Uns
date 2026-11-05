@@ -1,0 +1,39 @@
+// intrinsic magnetic field
+int     num_of_dipole                   1
+
+LIST==================================================================
+Dipole1         7
+(double)
+x0              y0              z0          mx          my          mz          a
+0.0             0.0             4.88e5      0.0         0.0         -2.83E19    5.0e2
+LIST==================================================================
+
+// Mercury interior resistivity
+bool    is_Mercury_resistance           1
+// Smooth double-tanh resistivity window. r_inner/r_outer are transition
+// centers, not hard cutoffs; width should span several radial cells.
+double  mercury_eta_r_inner             0.84
+double  mercury_eta_r_outer             1.04
+double  mercury_eta_width               0.02
+double  implicit_resistive_ksp_rtol     5.0e-3
+double  implicit_resistive_ksp_atol     1.0e-8
+int     implicit_resistive_ksp_max_it   200
+
+bool    is_Ambipolar_Efield             1
+double  r_min                           1.1
+double  r_max                           1.2
+
+// artificial resistivity limiter
+double  arti_eta_max                    0.00
+double  J_range_start                   800.0
+double  J_range_on                      3000.0
+
+bool    is_local_artificial_resistivity 1
+double  local_arti_eta_max              0.1
+double  local_arti_x0                   1.53
+double  local_arti_y0                   0.0
+double  local_arti_z0                   0.25
+double  local_arti_r_decay              0.05
+double  local_arti_r_cutoff             0.05
+
+END_OF_FILE

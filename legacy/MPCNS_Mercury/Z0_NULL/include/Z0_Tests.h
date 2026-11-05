@@ -1,0 +1,57 @@
+#pragma once
+
+class Field;
+class Grid;
+class Halo;
+class Param;
+class Z0_Boundary;
+namespace TOPO
+{
+    struct Topology;
+}
+
+namespace Z0_TEST
+{
+    bool RunTopologyTests(const TOPO::Topology &topology, int myid);
+    bool RunMeshPartitionTests(const Grid &grid, const TOPO::Topology &topology, int myid);
+    bool RunHaloCommunicationTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
+    bool RunExchangePlanTests(const Grid &grid, const TOPO::Topology &topology,
+                              Field &field, Halo &halo, int myid);
+    bool RunOrientedFormPlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                  Field &field, Halo &halo, int myid);
+    bool RunOrientedCornerPlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                    Field &field, Halo &halo, int myid);
+    bool RunPreparedOrientedCornerPlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunPreparedEdge1FormEdgeExecutionTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunPreparedOrientedVertexPlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunPreparedEdge1FormVertexExecutionTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunOrientedVertexPlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                    Field &field, Halo &halo, int myid);
+    bool RunFace2FormEdgePlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                   Field &field, Halo &halo, int myid);
+    bool RunPreparedFace2FormEdgePlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunPreparedFace2FormVertexPlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunPreparedFace2FormExecutionTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
+    bool RunFace2FormVertexPlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                     Field &field, Halo &halo, int myid);
+    bool RunCouplingIntegrationTests(
+        Grid &grid, const TOPO::Topology &topology,
+        Param &param, int myid);
+    bool RunRuntimeIntegrationTests(Param &param, int myid);
+    bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
+    bool RunPhysicalIoTests(Field &field, Param &param);
+}

@@ -1,0 +1,9 @@
+/build/
+/Run/*/
+!/Run/README.md
+*.vtu
+*.pvtu
+*.pvd
+*.bin
+*.cplx
+*.sol

@@ -1,0 +1,150 @@
+//=================================================================================================
+int	dimension	3			//dimension, 网格维数
+int	proc_num	10			//proc_num, 计算进程数
+string	gfilename	phipsi.grd			//gfilename, grd文件名
+string	bfilename	phipsi.inp			//bfilename, inp文件名
+string	ffilename	phipsi.fvbnd		//ffilename, fvbnd文件名
+//=================================================================================================
+
+
+
+//=================================================================================================
+bool	ifsplit		1			//ifsplit,是否进行二次剖分
+int	split_limit	10			//剖分的最小网格约束，默认为10，最小块的两(三)(dim=2or3)个方向尺度不得小于10层
+bool forbid_pole_azimuth_split 1       //避免切开Pole边界面的周向
+string pole_boundary_name Pole         //Pole边界名，按fvbnd名称查找，不固定使用边界编号
+int pole_azimuth_direction 3           //Pole周向方向，1/2/3对应i/j/k；Pole面法向不应为此方向
+
+//---------------------------------------------------------------------------------------
+double	split_scale	0.2			//split_scale剖分所容忍的不均衡度
+//						//e.g. split_scale=0.2表示按照平均1.2网格量进行剖分，默认为0.2
+//---------------------------------------------------------------------------------------
+//=================================================================================================
+
+
+
+//=================================================================================================
+//---------------------------------------------------------------------------------------
+bool	if_split_group_info	0		//是否已经存在包含全部剖分以及分配的几何信息
+//						//>0重新剖分、组合
+//						//>1要求存在split_group_info.bin文件
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+string partition_method morton        // greedy / morton / rcb / metis
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+int	grd_readtype		2		//读取文件的类型
+//						//>0普通文本文档ASCII的plot3d
+//						//>1二进制类型unformmated的plot3d
+//						//>2二进制类型binary形式的plot3D
+int refine_level 2      // >0 时先生成 INPUT/refine_level_L，加密倍率 R=2^L；加密后默认按二进制 grid 读取
+bool topology_report_ascii_layout 1 // TopologyReport face 页面是否输出二维 logical ASCII layout
+bool if_dec_orientation_test 0 // DEC orientation 自动测试 pass；仅测试用，split 后 group 前重排 final block 方向
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+int	grd_writetype		2		//输出网格文件的类型，MPCNS的1，2相同均为二进制(增加了blockname,其他软件不能直接打开)
+//						//>0普通文本文档ASCII的plot3d
+//						//>1二进制类型unformmated的plot3d
+//						//>2二进制类型binary形式的plot3D
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+int	preprocess_method	1		//输出网格格式
+//						//>0:输出传统ACANS形式的grd、boundary_condition文件(周期边界条件勿用)
+//						//>1:输出MPCNS形式的grd、boundary_condition文件
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+bool	if_multiphy_facecouple	1		//是否规范化并输出多物理场块名【仅用于MPCNS，在ACANS无效】
+//						//>0:输出的物理块名称无论输入网格、inp如何，一律输出“Fluid”
+//						//>1:读入inp时将网格块名称规范化，未识别为Fluid，命中关键词组则改为标准名称
+//						//关键词组
+LIST==================================================================
+canonical_block_name_keywords 2
+(string)
+Solid	Gas
+LIST==================================================================
+//---------------------------------------------------------------------------------------
+//=================================================================================================
+
+
+
+
+# Enable this to generate the files named by gfilename/bfilename/ffilename
+# before the normal preprocessing flow reads them.
+bool generate_cubic_periodic_grid = 0
+
+int cubic_nx = 9
+int cubic_ny = 9
+int cubic_nz = 9
+double cubic_xmin = 0.0
+double cubic_xmax = 1.0
+double cubic_ymin = 0.0
+double cubic_ymax = 1.0
+double cubic_zmin = 0.0
+double cubic_zmax = 1.0
+string cubic_block_name = Fluid
+
+# Cubic-sphere 自动网格开关。
+# 1: 先生成 gfilename/bfilename/ffilename，再直接进入现有加密、剖分和输出流程；0: 不生成。
+bool generate_cubic_sphere_grid = 1
+
+# 每个 cubed-sphere 面板在两个切向方向上的节点数（不是单元数）。
+# 每个面板切向单元数均为 cs_surface_points-1；6 个面板使用相同密度以保证公共边匹配。
+# 奇偶点数均保持 panel seam 共形；物理边界按外 Face 单元分类，不要求存在 x=0/中心节点。
+# 只有在后处理确实需要面板中心或坐标轴端点恰好有节点时，才需要使用奇数。
+int cs_surface_points = 50
+
+# 是否生成 r0~r1 的六块固体球壳。0 时只生成 r1 到外边界的流体网格。
+bool cs_include_solid = 1
+
+# 固体球壳内、外半径；同时 r1 是固流界面/流体内边界半径，长度单位与计算坐标一致。
+double cs_r0 = 0.8
+double cs_r1 = 1.0
+
+# 固体 r0~r1 的径向单元数，以及从 r1 向 r0（向内）相邻单元的增厚比。
+# growth=1 为等距；>1 表示从 r0 向 r1 逐渐变薄，即靠近固流界面 r1 的单元更薄；必须大于 0。
+int cs_solid_radial_cells = 25
+double cs_solid_growth = 1.0
+
+# 写入 inp 的物理块名称；后续可由 canonical_block_name_keywords 进一步规范化。
+string cs_solid_block_name = Solid
+string cs_fluid_block_name = Fluid
+
+# Hermite 推进线两端法向切矢长度的缩放系数，控制网格线向球面/椭球法向转弯的强度。
+# 增大可改善有限厚度下的边界正交性，但过大会增加内部弯曲；建议 1.0~1.5，允许范围 (0,2]。
+double cs_orthogonal_tangent_scale = 1.5
+
+# 外计算域的包围范围。六个值定义偏心椭球：中心=(min+max)/2，半轴=(max-min)/2。
+# 椭球必须完整包住 r=r1 球面；为区分 Farfield/Outflow，x 范围必须满足 xmin<0<xmax。
+# 外表面节点由球心射线与椭球求交得到，因此位于椭球上但切向间距允许非均匀，以减少内部弯曲。
+double cs_outer_xmin = -12.0
+double cs_outer_xmax = 4.0
+double cs_outer_ymin = -10.0
+double cs_outer_ymax = 10.0
+double cs_outer_zmin = -10.0
+double cs_outer_zmax = 10.0
+
+# 流体径向布点方式。1: 从 r1 按 advancing-layer 方式向外推进；0: 使用兼容的旧分段布点。
+bool cs_fluid_advance_layers = 1
+
+# 流体径向单元数。设为 0 时，根据首层厚度、最长推进线和最大增长率自动计算最少层数；
+# 设为正数时强制使用该层数，若无法在增长率阈值内到达外边界则报错。所有流体块层数相同。
+int cs_fluid_radial_cells = 0
+
+# 任意相邻流体径向单元的最大允许厚度增长比。网格只向外逐渐放粗，不在远场重新加密。
+# 越接近 1，过渡越平滑但所需径向层数越多；典型值 1.05~1.15，必须 >=1。
+double cs_fluid_max_spacing_ratio = 1.10
+
+# r=r1 处流体第一层厚度 / 固体最后一层厚度，用于保证固流界面层厚光滑过渡。
+# 1.0 表示两侧目标厚度相同；仅在包含固体且 advance_layers=1 时由固体末层自动确定基准厚度。
+double cs_interface_spacing_ratio = 1.0
+
+# 不生成固体（cs_include_solid=0）时，r=r1 壁面外侧的流体第一层物理厚度。
+# 仅在 advance_layers=1 且无固体时使用；网格的尺寸为单位，必须大于 0。
+double cs_fluid_first_spacing = 0.008
+
+END_OF_FILE

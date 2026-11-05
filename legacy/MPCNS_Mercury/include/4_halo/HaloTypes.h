@@ -1,0 +1,280 @@
+#pragma once
+#include "0_basic/TYPES.h"
+#include "0_basic/StaggerLocation.h"
+#include "2_topology/TopologyTypes.h"
+#include "3_field/FieldValueKind.h"
+#include <array>
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+struct HaloRegion
+{
+    //--------------------------------------------------------------------------
+    // 对于 parallel（跨 rank）情况，还可以加：
+    int this_rank;
+    int neighbor_rank;
+    //--------------------------------------------------------------------------
+    // Block_ID
+    int this_block;     // 我是哪个 block（接收方）
+    int neighbor_block; // 对方 block（发送方）
+    //--------------------------------------------------------------------------
+    // IJK_range
+    Box3 recv_box; // 我这边要填的 ghost 区 (在 this_block 的 FieldBlock 索引空间里)
+    Box3 send_box; // 对方的 interior 区 (在 neighbor_block 的 FieldBlock 索引空间里)
+    //--------------------------------------------------------------------------
+    // Mapping patern
+    TOPO::IndexTransform trans; // 从 this_block 逻辑坐标 -> neighbor_block 逻辑坐标
+
+    int send_flag, recv_flag;
+};
+
+enum class LegacyHaloPatternKind
+{
+    InnerCopy,
+    ParallelFace,
+    ParallelEdgeSend,
+    ParallelEdgeRecv,
+    ParallelVertexSend,
+    ParallelVertexRecv
+};
+
+struct LegacyHaloPatternSnapshot
+{
+    LegacyHaloPatternKind kind;
+    HaloLevel stage;
+    StaggerLocation location;
+    int nghost;
+    std::vector<HaloRegion> regions;
+};
+
+enum class LegacyOrientedFormKind
+{
+    Edge1Form,
+    Face2Form
+};
+
+struct LegacyOrientedTripletSnapshot
+{
+    std::string group_name;
+    LegacyOrientedFormKind form_kind;
+    std::array<std::string, 3> field_names;
+    std::array<StaggerLocation, 3> locations;
+    std::array<FieldValueKind, 3> value_kinds;
+    std::array<int, 3> ncomp;
+    std::array<int, 3> nghost;
+    HaloLevel level;
+    bool orientation_aware;
+};
+
+enum class LegacyOrientedCornerRole
+{
+    Receive,
+    Send
+};
+
+struct LegacyOrientedCornerTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyOrientedCornerPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyOrientedCornerTransferSnapshot> recv_plan;
+    std::vector<LegacyOrientedCornerTransferSnapshot> send_plan;
+};
+
+struct LegacyOrientedVertexTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    int dir3_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyOrientedVertexPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyOrientedVertexTransferSnapshot> recv_plan;
+    std::vector<LegacyOrientedVertexTransferSnapshot> send_plan;
+};
+
+struct LegacyFace2FormEdgeTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyFace2FormEdgePlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyFace2FormEdgeTransferSnapshot> recv_plan;
+    std::vector<LegacyFace2FormEdgeTransferSnapshot> send_plan;
+};
+
+struct LegacyFace2FormVertexTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    int dir3_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyFace2FormVertexPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyFace2FormVertexTransferSnapshot> recv_plan;
+    std::vector<LegacyFace2FormVertexTransferSnapshot> send_plan;
+};
+
+struct HaloPattern
+{
+    StaggerLocation location; // Cell / FaceXi / ...
+    int nghost;               // ghost 层数
+
+    std::vector<HaloRegion> regions;
+};
+
+enum class Direction
+{
+    XMinus,
+    XPlus,
+    YMinus,
+    YPlus,
+    ZMinus,
+    ZPlus
+};
+
+struct EdgeMeta
+{
+    using PatternKey = std::pair<StaggerLocation, int>;
+    PatternKey key; // {location, nghost}，方便多种 pattern 共用
+    int recv_rank;  // 拿 ghost 的那边
+    int send_rank;  // 提供 inner 的那边
+
+    int recv_block; // 在 recv_rank 上的 block id (this_block on recv side)
+    int send_block; // 在 send_rank 上的 block id (nb_block on recv side)
+
+    Box3 edge_node_on_send; // 这条 edge 在 send_block 的 node 范围 (ep.nb_box_node)
+
+    int dir1_send; // 在 send_block 上 edge 的两个方向（±1/±2/±3）
+    int dir2_send;
+
+    // 可选：如果你在 send_pattern 也需要 trans，可以携带 recv->send 的 IndexTransform
+    TOPO::IndexTransform trans_recv_to_send;
+
+    int tag; // 这一条 edge 通信的唯一标识，在 recv_rank 本地编号后写进去
+};
+
+struct VertexMeta
+{
+    using PatternKey = std::pair<StaggerLocation, int>;
+    PatternKey key; // {location, nghost}，方便多种 pattern 共用
+    int recv_rank;  // 拿 ghost 的那边
+    int send_rank;  // 提供 inner 的那边
+
+    int recv_block; // 在 recv_rank 上的 block id (this_block on recv side)
+    int send_block; // 在 send_rank 上的 block id (nb_block on recv side)
+
+    Box3 vertex_node_on_send; // 这vertex在 send_block 的 node 范围 (ep.nb_box_node)
+
+    int dir1_send; // 在 send_block 上 edge 的两个方向（±1/±2/±3）
+    int dir2_send;
+
+    int dir3_send;
+
+    // 可选：如果你在 send_pattern 也需要 trans，可以携带 recv->send 的 IndexTransform
+    TOPO::IndexTransform trans_recv_to_send;
+
+    int tag; // 这一条 edge 通信的唯一标识，在 recv_rank 本地编号后写进去
+};

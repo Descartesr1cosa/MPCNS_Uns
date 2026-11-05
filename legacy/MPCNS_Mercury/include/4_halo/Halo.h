@@ -1,0 +1,863 @@
+#pragma once
+#include "2_topology/Topology.h"
+#include "4_halo/HaloTypes.h"
+#include "4_halo/HaloSyncTypes.h"
+#include "3_field/Field.h"
+#include "0_basic/MPI_WRAPPER.h"
+
+#include <cstdint>
+#include <iosfwd>
+#include <optional>
+#include <memory>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+
+enum class Edge1FormEdgeExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Edge1FormEdgeExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedEdge1FormEdgeExecutionView;
+
+enum class Edge1FormVertexExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Edge1FormVertexExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedEdge1FormVertexExecutionView;
+
+enum class Face2FormEdgeExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Face2FormEdgeExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedFace2FormEdgeExecutionView;
+
+enum class Face2FormVertexExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Face2FormVertexExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedFace2FormVertexExecutionView;
+
+enum class CouplingExecutionMode
+{
+    Prepared,
+    LegacyValidation
+};
+
+struct CouplingExecutionCounters
+{
+    std::uint64_t prepared_inner_channel_executions = 0;
+    std::uint64_t prepared_parallel_channel_executions = 0;
+    std::uint64_t legacy_entry_executions = 0;
+    std::uint64_t initialization_collectives = 0;
+    std::uint64_t zero_length_messages = 0;
+    std::uint64_t sent_messages = 0;
+    std::uint64_t received_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+class Halo
+{
+public:
+    Halo(Field *field, TOPO::Topology *topo);
+
+    // Registration and pattern lifecycle.
+    void register_halo_field(const FieldHaloRequest &request);
+    void register_halo_field(const std::string &field_name,
+                             HaloLevel level = HaloLevel::Corner3D);
+    void register_halo_fields(const std::vector<FieldHaloRequest> &requests);
+
+    void build_registered_patterns();
+
+    // High-level sync API.
+    void sync_registered();
+    void sync_registered(HaloLevel stage);
+    void sync_field(const std::string &field_name);
+    void sync_field(const std::string &field_name, HaloLevel stage);
+    void sync_group(const std::string &group_name);
+    void sync_group(const std::string &group_name, HaloLevel stage);
+    void sync_owner_alias();
+    void sync_owner_alias_field(const std::string &field_name);
+    void sync_owner_alias_group(const std::string &group_name);
+    void dump_sync_registry(std::ostream &os) const;
+    HALO_EXEC::Statistics
+    debug_prepared_exchange_statistics() const noexcept;
+
+    // Prepared is the production mode. LegacyValidation exists only for
+    // exact regression comparison and retains the former scan/temporary
+    // buffer implementation.
+    void set_coupling_execution_mode(CouplingExecutionMode mode) noexcept;
+    CouplingExecutionMode debug_coupling_execution_mode() const noexcept;
+    CouplingExecutionCounters debug_coupling_execution_counters() const noexcept;
+    bool debug_coupling_execution_ready() const noexcept;
+
+    // Test/debug helper: expose the recv/send boxes used by the registered
+    // halo patterns without changing the production sync path.
+    std::vector<HaloRegion> debug_halo_regions(StaggerLocation location,
+                                                int nghost,
+                                                HaloLevel stage) const;
+    std::vector<LegacyHaloPatternSnapshot>
+    debug_component_copy_patterns(StaggerLocation location, int nghost) const;
+
+    std::vector<LegacyOrientedTripletSnapshot>
+    debug_oriented_form_triplets() const;
+
+    // Optional test/diagnostic capture of the actual temporary Edge-stage
+    // Edge1Form metadata. Disabled by default and never performs extra MPI.
+    void enable_edge_1form_corner_plan_capture(bool enabled);
+    std::optional<LegacyOrientedCornerPlanSnapshot>
+    debug_edge_1form_corner_plan(const std::string &group_name) const;
+
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Edge-stage Edge1Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_edge_1form_corner_metadata();
+    std::optional<LegacyOrientedCornerPlanSnapshot>
+    debug_prepared_edge_1form_corner_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_edge_1form_corner_plan_generation() const;
+    std::uint64_t
+    debug_prepared_edge_1form_corner_metadata_exchange_count() const noexcept;
+
+    // Default is Legacy. These are collective lifecycle transitions and
+    // Prepared requires already-built patterns and prepared metadata.
+    bool set_edge_1form_edge_execution_mode(
+        Edge1FormEdgeExecutionMode mode);
+    bool activate_prepared_edge_1form_edge_execution();
+    bool deactivate_prepared_edge_1form_edge_execution();
+    Edge1FormEdgeExecutionMode
+    debug_edge_1form_edge_execution_mode() const noexcept;
+    bool debug_prepared_edge_1form_edge_execution_active() const noexcept;
+    Edge1FormEdgeExecutionCounters
+    debug_edge_1form_edge_execution_counters() const noexcept;
+
+    // Default is Legacy. Vertex activation is independent from Edge-stage
+    // activation and requires prepared Corner3D metadata on every rank.
+    bool set_edge_1form_vertex_execution_mode(
+        Edge1FormVertexExecutionMode mode);
+    bool activate_prepared_edge_1form_vertex_execution();
+    bool deactivate_prepared_edge_1form_vertex_execution();
+    Edge1FormVertexExecutionMode
+    debug_edge_1form_vertex_execution_mode() const noexcept;
+    bool debug_prepared_edge_1form_vertex_execution_active() const noexcept;
+    Edge1FormVertexExecutionCounters
+    debug_edge_1form_vertex_execution_counters() const noexcept;
+
+
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Vertex-stage Edge1Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_vertex_edge_1form_metadata();
+    std::optional<LegacyOrientedVertexPlanSnapshot>
+    debug_prepared_vertex_edge_1form_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_vertex_edge_1form_plan_generation() const;
+    std::uint64_t
+    debug_prepared_vertex_edge_1form_metadata_exchange_count() const noexcept;
+
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Edge-stage Face2Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_edge_face_2form_metadata();
+    std::optional<LegacyFace2FormEdgePlanSnapshot>
+    debug_prepared_edge_face_2form_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_edge_face_2form_plan_generation() const;
+    std::uint64_t
+    debug_prepared_edge_face_2form_metadata_exchange_count() const noexcept;
+
+    // Default is Legacy. Prepared activates only the orientation-aware
+    // Face2Form Edge-stage view after collective validation.
+    bool set_face_2form_edge_execution_mode(
+        Face2FormEdgeExecutionMode mode);
+    bool activate_prepared_face_2form_edge_execution();
+    bool deactivate_prepared_face_2form_edge_execution();
+    Face2FormEdgeExecutionMode
+    debug_face_2form_edge_execution_mode() const noexcept;
+    bool debug_prepared_face_2form_edge_execution_active() const noexcept;
+    Face2FormEdgeExecutionCounters
+    debug_face_2form_edge_execution_counters() const noexcept;
+
+
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Vertex-stage Face2Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_vertex_face_2form_metadata();
+    std::optional<LegacyFace2FormVertexPlanSnapshot>
+    debug_prepared_vertex_face_2form_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_vertex_face_2form_plan_generation() const;
+    std::uint64_t
+    debug_prepared_vertex_face_2form_metadata_exchange_count() const noexcept;
+
+    // Default is Legacy. Prepared activates only the orientation-aware
+    // Face2Form Vertex-stage view after collective validation.
+    bool set_face_2form_vertex_execution_mode(
+        Face2FormVertexExecutionMode mode);
+    bool activate_prepared_face_2form_vertex_execution();
+    bool deactivate_prepared_face_2form_vertex_execution();
+    Face2FormVertexExecutionMode
+    debug_face_2form_vertex_execution_mode() const noexcept;
+    bool debug_prepared_face_2form_vertex_execution_active() const noexcept;
+    Face2FormVertexExecutionCounters
+    debug_face_2form_vertex_execution_counters() const noexcept;
+
+
+    // Optional capture for the independent Vertex-stage Edge1Form protocol.
+    void enable_vertex_edge_1form_plan_capture(bool enabled);
+    std::optional<LegacyOrientedVertexPlanSnapshot>
+    debug_vertex_edge_1form_plan(const std::string &group_name) const;
+
+    // Optional capture of orientation-aware Face2Form Edge-stage metadata.
+    void enable_edge_face_2form_plan_capture(bool enabled);
+    std::optional<LegacyFace2FormEdgePlanSnapshot>
+    debug_edge_face_2form_plan(const std::string &group_name) const;
+
+    // Independent orientation-aware Face2Form Vertex-stage capture.
+    void enable_vertex_face_2form_plan_capture(bool enabled);
+    std::optional<LegacyFace2FormVertexPlanSnapshot>
+    debug_vertex_face_2form_plan(const std::string &group_name) const;
+
+    std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
+                                                     int nghost,
+                                                     HaloLevel stage) const;
+
+    // Topology equivalence is required by owner-alias synchronization.
+    void set_topology_equiv(const TOPO::Topology *equiv);
+    const TOPO::Topology *topology_equiv() const;
+
+    // Legacy halo transfer API. Prefer sync_registered/sync_field for new code.
+    void data_trans_1DCorner(std::string &field_name);
+    void data_trans_2DCorner(std::string &field_name);
+    void data_trans_3DCorner(std::string &field_name);
+    void data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
+                                       HaloLevel stage);
+    void data_trans_face_axis_triplet(const std::vector<std::string> &fields,
+                                      HaloLevel stage);
+
+    // Coupling transfer API. These fill coupling buffers and do not write ghosts.
+    void coupling_trans_1DCorner(std::string &src, std::string &dst);
+    void coupling_trans_1DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_trans_2DCorner(std::string &src, std::string &dst);
+    void coupling_trans_2DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_trans_3DCorner(std::string &src, std::string &dst);
+    void coupling_trans_3DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
+
+private:
+    // Same-field component copy exchange.
+    void exchange_inner(const std::string &field_name);
+    void exchange_parallel(const std::string &field_name);
+    void exchange_inner_edge(const std::string &field_name);
+    void exchange_parallel_edge(const std::string &field_name);
+    void exchange_inner_vertex(const std::string &field_name);
+    void exchange_parallel_vertex(const std::string &field_name);
+
+    // Orientation-aware triplet exchange.
+    void exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_face_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
+
+    void exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+
+    // Coupling buffer exchange.
+    void coupling_inner_face(const std::string &src, const std::string &dst);
+    void coupling_parallel_face(const std::string &src, const std::string &dst);
+    void coupling_inner_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_parallel_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_inner_edge(const std::string &src, const std::string &dst);
+    void coupling_parallel_edge(const std::string &src, const std::string &dst);
+    void coupling_inner_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_parallel_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_inner_vertex(const std::string &src, const std::string &dst);
+    void coupling_parallel_vertex(const std::string &src, const std::string &dst);
+    void coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+
+    void coupling_inner_face_legacy_(const std::string &, const std::string &);
+    void coupling_inner_face_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_inner_edge_legacy_(const std::string &, const std::string &);
+    void coupling_inner_edge_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_inner_vertex_legacy_(const std::string &, const std::string &);
+    void coupling_inner_vertex_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_face_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_face_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_edge_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_edge_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_vertex_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_vertex_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+
+    void invalidate_prepared_edge_1form_vertex_execution_();
+    bool prepared_edge_1form_vertex_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedEdge1FormVertexExecutionView>
+    make_prepared_edge_1form_vertex_execution_view_(
+        const LegacyOrientedVertexPlanSnapshot &snapshot) const;
+
+    // Orientation-aware coupling helpers.
+    bool coupling_channel_needs_form_transfer_(const CouplingChannelSpec &ch) const;
+    int coupling_form_axis_from_location_(StaggerLocation loc) const;
+    StaggerLocation coupling_form_location_from_axis_(FieldValueKind value_kind, int axis) const;
+    int coupling_src_axis_from_dst_to_src_transform_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_src_axis_from_src_to_dst_transform_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_edge_1form_sign_dst_to_src_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_edge_1form_sign_src_to_dst_(const TOPO::IndexTransform &tr, int src_axis) const;
+    int coupling_face_2form_sign_dst_to_src_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_face_2form_sign_src_to_dst_(const TOPO::IndexTransform &tr, int src_axis) const;
+    int coupling_form_orientation_sign_dst_to_src_(const CouplingChannelSpec &ch,
+                                                   const TOPO::IndexTransform &tr,
+                                                   int dst_axis) const;
+    int coupling_form_orientation_sign_src_to_dst_(const CouplingChannelSpec &ch,
+                                                   const TOPO::IndexTransform &tr,
+                                                   int src_axis) const;
+    std::string find_triplet_field_name_(const std::string &dst_field_name,
+                                         FieldValueKind value_kind,
+                                         int wanted_src_axis) const;
+
+    void invalidate_prepared_edge_1form_corner_metadata_();
+    bool prepared_edge_1form_corner_metadata_valid_() const noexcept;
+    void invalidate_prepared_vertex_edge_1form_metadata_();
+    void invalidate_prepared_edge_1form_edge_execution_();
+    bool prepared_edge_1form_edge_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedEdge1FormEdgeExecutionView>
+    make_prepared_edge_1form_edge_execution_view_(
+        const LegacyOrientedCornerPlanSnapshot &snapshot) const;
+
+
+    bool prepared_vertex_edge_1form_metadata_valid_() const noexcept;
+    void invalidate_prepared_edge_face_2form_metadata_();
+    bool prepared_edge_face_2form_metadata_valid_() const noexcept;
+    void invalidate_prepared_vertex_face_2form_metadata_();
+    bool prepared_vertex_face_2form_metadata_valid_() const noexcept;
+
+    void invalidate_prepared_face_2form_edge_execution_();
+    bool prepared_face_2form_edge_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedFace2FormEdgeExecutionView>
+    make_prepared_face_2form_edge_execution_view_(
+        const LegacyFace2FormEdgePlanSnapshot &snapshot) const;
+    void invalidate_prepared_face_2form_vertex_execution_();
+    bool prepared_face_2form_vertex_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedFace2FormVertexExecutionView>
+    make_prepared_face_2form_vertex_execution_view_(
+        const LegacyFace2FormVertexPlanSnapshot &snapshot) const;
+
+    void reserve_prepared_exchange_views_();
+
+
+private:
+    Field *fld_;
+    TOPO::Topology *topo_;
+    const TOPO::Topology *equiv_ = nullptr;
+
+    using HaloSyncSemantics = HALO_SYNC::Semantics;
+    using HaloTripletRequest = HALO_SYNC::TripletRequest;
+    using HaloOwnerRequest = HALO_SYNC::OwnerRequest;
+    using OwnerSyncLocalOp = HALO_SYNC::OwnerLocalOp;
+    using OwnerSyncSendOp = HALO_SYNC::OwnerSendOp;
+    using OwnerSyncRecvOp = HALO_SYNC::OwnerRecvOp;
+    using OwnerSyncPattern = HALO_SYNC::OwnerPattern;
+    using CouplingPatternKey = HALO_SYNC::CouplingPatternKey;
+
+    // 同一个 field_name 多次注册时取更高等级（Corner1D < Corner2D < Corner3D）
+    std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
+
+    std::vector<std::string> component_copy_fields_;
+
+    std::unordered_map<std::string, HaloTripletRequest> edge_1form_triplets_;
+    std::unordered_map<std::string, HaloTripletRequest> face_2form_triplets_;
+
+    bool capture_edge_1form_corner_plans_ = false;
+    std::unordered_map<std::string, LegacyOrientedCornerPlanSnapshot>
+        edge_1form_corner_plan_snapshots_;
+
+    struct PreparedEdge1FormCornerPlanEntry
+    {
+        LegacyOrientedCornerPlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Prepared metadata is independent of runtime snapshot capture. Its
+    // values are invalidated on any registration or pattern rebuild.
+    std::unordered_map<std::string, PreparedEdge1FormCornerPlanEntry>
+        prepared_edge_1form_corner_plans_;
+    bool prepared_edge_1form_corner_metadata_ready_ = false;
+    std::uint64_t prepared_edge_1form_corner_registry_generation_ = 0;
+    std::uint64_t prepared_edge_1form_corner_pattern_generation_ = 0;
+    std::uint64_t prepared_edge_1form_corner_metadata_exchange_count_ = 0;
+
+    // Activation owns this one-time conversion to legacy-executor metadata.
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedEdge1FormEdgeExecutionView>>
+        prepared_edge_1form_edge_execution_plans_;
+    Edge1FormEdgeExecutionMode edge_1form_edge_execution_mode_ =
+        Edge1FormEdgeExecutionMode::Legacy;
+    std::uint64_t edge_1form_edge_execution_registry_generation_ = 0;
+    std::uint64_t edge_1form_edge_execution_pattern_generation_ = 0;
+    Edge1FormEdgeExecutionCounters edge_1form_edge_execution_counters_;
+
+
+    struct PreparedVertexEdge1FormPlanEntry
+    {
+        LegacyOrientedVertexPlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Independent from Edge-stage prepared metadata and from runtime capture.
+    std::unordered_map<std::string, PreparedVertexEdge1FormPlanEntry>
+        prepared_vertex_edge_1form_plans_;
+    bool prepared_vertex_edge_1form_metadata_ready_ = false;
+    std::uint64_t prepared_vertex_edge_1form_registry_generation_ = 0;
+    std::uint64_t prepared_vertex_edge_1form_pattern_generation_ = 0;
+    std::uint64_t prepared_vertex_edge_1form_metadata_exchange_count_ = 0;
+    // Independent Vertex-stage execution view built once at activation.
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedEdge1FormVertexExecutionView>>
+        prepared_edge_1form_vertex_execution_plans_;
+    Edge1FormVertexExecutionMode edge_1form_vertex_execution_mode_ =
+        Edge1FormVertexExecutionMode::Legacy;
+    std::uint64_t edge_1form_vertex_execution_registry_generation_ = 0;
+    std::uint64_t edge_1form_vertex_execution_pattern_generation_ = 0;
+    Edge1FormVertexExecutionCounters edge_1form_vertex_execution_counters_;
+
+    struct PreparedEdgeFace2FormPlanEntry
+    {
+        LegacyFace2FormEdgePlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Independent from prepared Edge1Form caches and runtime capture.
+    std::unordered_map<std::string, PreparedEdgeFace2FormPlanEntry>
+        prepared_edge_face_2form_plans_;
+    bool prepared_edge_face_2form_metadata_ready_ = false;
+    std::uint64_t prepared_edge_face_2form_registry_generation_ = 0;
+    std::uint64_t prepared_edge_face_2form_pattern_generation_ = 0;
+    std::uint64_t prepared_edge_face_2form_metadata_exchange_count_ = 0;
+
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedFace2FormEdgeExecutionView>>
+        prepared_face_2form_edge_execution_plans_;
+    Face2FormEdgeExecutionMode face_2form_edge_execution_mode_ =
+        Face2FormEdgeExecutionMode::Legacy;
+    std::uint64_t face_2form_edge_execution_registry_generation_ = 0;
+    std::uint64_t face_2form_edge_execution_pattern_generation_ = 0;
+    Face2FormEdgeExecutionCounters face_2form_edge_execution_counters_;
+
+
+    struct PreparedVertexFace2FormPlanEntry
+    {
+        LegacyFace2FormVertexPlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Independent from every other prepared family and runtime capture.
+    std::unordered_map<std::string, PreparedVertexFace2FormPlanEntry>
+        prepared_vertex_face_2form_plans_;
+    bool prepared_vertex_face_2form_metadata_ready_ = false;
+    std::uint64_t prepared_vertex_face_2form_registry_generation_ = 0;
+    std::uint64_t prepared_vertex_face_2form_pattern_generation_ = 0;
+    std::uint64_t prepared_vertex_face_2form_metadata_exchange_count_ = 0;
+
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedFace2FormVertexExecutionView>>
+        prepared_face_2form_vertex_execution_plans_;
+    Face2FormVertexExecutionMode face_2form_vertex_execution_mode_ =
+        Face2FormVertexExecutionMode::Legacy;
+    std::uint64_t face_2form_vertex_execution_registry_generation_ = 0;
+    std::uint64_t face_2form_vertex_execution_pattern_generation_ = 0;
+    Face2FormVertexExecutionCounters face_2form_vertex_execution_counters_;
+
+
+    bool registered_patterns_built_ = false;
+    std::uint64_t registry_generation_ = 0;
+    std::uint64_t pattern_generation_ = 0;
+
+    bool capture_vertex_edge_1form_plans_ = false;
+    std::unordered_map<std::string, LegacyOrientedVertexPlanSnapshot>
+        vertex_edge_1form_plan_snapshots_;
+
+    bool capture_edge_face_2form_plans_ = false;
+    std::unordered_map<std::string, LegacyFace2FormEdgePlanSnapshot>
+        edge_face_2form_plan_snapshots_;
+
+    bool capture_vertex_face_2form_plans_ = false;
+    std::unordered_map<std::string, LegacyFace2FormVertexPlanSnapshot>
+        vertex_face_2form_plan_snapshots_;
+
+    std::vector<HaloOwnerRequest> owner_sync_requests_;
+
+    std::unordered_map<std::string, std::string> field_to_group_;
+
+    std::unordered_map<std::string, OwnerSyncPattern> owner_sync_patterns_;
+
+    struct ComponentExchangePlan
+    {
+        int fid = -1;
+        int ncomp = 0;
+        HaloLevel stage = HaloLevel::Corner1D;
+        std::vector<HaloRegion> send_regions;
+        std::vector<HaloRegion> recv_regions;
+        HALO_EXEC::Plan exchange_plan;
+    };
+
+    using ComponentExchangeKey = std::pair<std::string, int>;
+    std::map<ComponentExchangeKey, ComponentExchangePlan>
+        component_exchange_plans_;
+
+    struct OrientedFaceTransfer
+    {
+        HaloRegion destination_region;
+        HaloRegion source_region;
+        int source_fid = -1;
+        int destination_fid = -1;
+        int sign = 1;
+    };
+
+    struct OrientedFaceExchangePlan
+    {
+        int ncomp = 0;
+        std::vector<OrientedFaceTransfer> send_transfers;
+        std::vector<OrientedFaceTransfer> recv_transfers;
+        HALO_EXEC::Plan exchange_plan;
+    };
+
+    std::map<std::string, std::vector<OrientedFaceExchangePlan>>
+        oriented_face_exchange_plans_;
+
+    struct CouplingPlanKey
+    {
+        std::string src;
+        std::string dst;
+        int stage = 0;
+        int channel = 0;
+
+        bool operator<(const CouplingPlanKey &other) const
+        {
+            if (src != other.src)
+                return src < other.src;
+            if (dst != other.dst)
+                return dst < other.dst;
+            if (stage != other.stage)
+                return stage < other.stage;
+            return channel < other.channel;
+        }
+    };
+
+    struct LocalCouplingTransfer
+    {
+        int source_fid = -1;
+        int source_block = -1;
+        std::size_t buffer_index = 0;
+        Box3 destination_box;
+        TOPO::IndexTransform destination_to_source{};
+        int ncomp = 0;
+        double factor = 1.0;
+    };
+
+    struct ParallelCouplingSendTransfer
+    {
+        int source_fid = -1;
+        int source_block = -1;
+        Box3 source_box;
+        TOPO::IndexTransform source_to_destination{};
+        int ncomp = 0;
+        double factor = 1.0;
+    };
+
+    struct ParallelCouplingRecvTransfer
+    {
+        std::size_t buffer_index = 0;
+        Box3 destination_box;
+        int ncomp = 0;
+    };
+
+    struct ParallelCouplingPlan
+    {
+        std::vector<ParallelCouplingSendTransfer> sends;
+        std::vector<ParallelCouplingRecvTransfer> recvs;
+        HALO_EXEC::Plan exchange_plan;
+    };
+
+    std::map<CouplingPlanKey, std::vector<LocalCouplingTransfer>>
+        local_coupling_plans_;
+    std::map<CouplingPlanKey, ParallelCouplingPlan>
+        parallel_coupling_plans_;
+    CouplingExecutionMode coupling_execution_mode_ =
+        CouplingExecutionMode::Prepared;
+    CouplingExecutionCounters coupling_execution_counters_;
+    std::uint64_t coupling_field_generation_ = 0;
+    std::uint64_t coupling_pattern_generation_ = 0;
+    bool coupling_plans_ready_ = false;
+    int coupling_tag_base_ = -1;
+
+    HALO_EXEC::PreparedExchangeExecutor prepared_exchange_executor_;
+    std::unordered_map<std::string, int> owner_sync_tags_;
+
+    // Sync registry helpers.
+    HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
+
+    void upsert_halo_request_(const FieldHaloRequest &request);
+
+    void rebuild_sync_registry_();
+
+    void classify_registered_request_(const FieldHaloRequest &req);
+
+    void validate_triplet_registry_() const;
+
+    void validate_sync_registry_consistency_() const;
+
+    const FieldHaloRequest &halo_request_(const std::string &field_name) const;
+
+    void sync_component_copy_field_(const std::string &field_name);
+    void sync_component_copy_field_stage_(const std::string &field_name, HaloLevel stage);
+
+    void sync_component_copy_registered_();
+    void sync_component_copy_registered_stage_(HaloLevel stage);
+
+    void sync_edge_1form_triplet_(const HaloTripletRequest &tri);
+    void sync_edge_1form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage);
+
+    void sync_edge_1form_triplets_registered_();
+    void sync_edge_1form_triplets_registered_stage_(HaloLevel stage);
+
+    void sync_face_2form_triplet_(const HaloTripletRequest &tri);
+    void sync_face_2form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage);
+
+    void sync_face_2form_triplet_face_level_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplet_edge_level_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplet_vertex_level_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplets_registered_();
+    void sync_face_2form_triplets_registered_stage_(HaloLevel stage);
+
+    void sync_owner_alias_request_(const HaloOwnerRequest &req);
+
+    void sync_owner_alias_registered_();
+    bool sync_owner_alias_field_(const std::string &field_name);
+    bool sync_owner_alias_group_(const std::string &group_name);
+
+    bool field_is_component_copy_(const std::string &field_name) const;
+
+    TOPO::EntityDim owner_policy_to_entity_dim_(OwnerSyncPolicy policy) const;
+
+    void require_owner_equiv_available_(OwnerSyncPolicy policy,
+                                        const std::string &field_name) const;
+
+    int owner_alias_sign_(const HaloOwnerRequest &req,
+                          const TOPO::EquivMember &owner,
+                          const TOPO::EquivMember &alias) const;
+
+    bool owner_member_matches_field_(const HaloOwnerRequest &req,
+                                     const TOPO::EquivMember &m) const;
+
+    int owner_sync_member_field_id_(const HaloOwnerRequest &req,
+                                    const TOPO::EquivMember &member) const;
+
+    void copy_owner_to_alias_local_(const HaloOwnerRequest &req,
+                                    int fid,
+                                    const TOPO::EquivMember &owner,
+                                    const TOPO::EquivMember &alias,
+                                    int sign);
+
+    void build_owner_sync_patterns_();
+
+    void validate_owner_sync_pattern_lengths_(OwnerSyncPattern &pat) const;
+
+    void configure_owner_sync_tags_();
+
+    void collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const;
+    void validate_coupling_registry_consistency_();
+    void build_coupling_execution_plans_(std::uint64_t generation);
+
+    void execute_coupling_inner_(const std::string &src,
+                                 const std::string &dst,
+                                 HaloLevel stage,
+                                 const std::vector<int32_t> *channels);
+    void execute_coupling_parallel_(const std::string &src,
+                                    const std::string &dst,
+                                    HaloLevel stage,
+                                    const std::vector<int32_t> *channels);
+    void validate_coupling_execution_ready_() const;
+    int managed_coupling_tag_(int original_tag) const;
+
+    std::vector<CouplingBufferBlock> &coupling_buffer_list_(
+        CouplingBuffersForPair &buffers, HaloLevel stage,
+        bool parallel, int channel) const;
+
+    const ParallelCouplingPlan &parallel_coupling_plan_(
+        const std::string &src, const std::string &dst,
+        HaloLevel stage, int channel) const;
+
+    const std::vector<LocalCouplingTransfer> &local_coupling_plan_(
+        const std::string &src, const std::string &dst,
+        HaloLevel stage, int channel) const;
+
+    void build_component_copy_exchange_plans_(
+        std::uint64_t generation);
+
+    const ComponentExchangePlan &component_exchange_plan_(
+        const std::string &field_name, HaloLevel stage) const;
+
+    void execute_component_exchange_plan_(
+        const ComponentExchangePlan &plan);
+
+    void build_oriented_face_exchange_plans_(
+        std::uint64_t generation);
+
+    void execute_oriented_face_exchange_plans_(
+        const std::vector<std::string> &fields,
+        FieldValueKind value_kind);
+
+    std::string oriented_face_plan_key_(
+        const std::string &group, FieldValueKind value_kind) const;
+
+    OwnerSyncPattern build_owner_sync_pattern_for_request_(const HaloOwnerRequest &req) const;
+
+    int owner_sync_tag_(const HaloOwnerRequest &req) const;
+
+    void resize_owner_sync_buffers_(OwnerSyncPattern &pat) const;
+
+    void execute_owner_sync_local_ops_(const OwnerSyncPattern &pat);
+
+    void execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat);
+
+    bool halo_level_includes_edge_(HaloLevel level) const;
+
+    bool halo_level_includes_vertex_(HaloLevel level) const;
+
+    // key = (StaggerLocation, nghost)，value = HaloPattern
+    using PatternKey = std::pair<StaggerLocation, int>;
+    std::map<PatternKey, HaloPattern> inner_patterns_;
+    std::map<PatternKey, HaloPattern> parallel_patterns_;
+
+    // For 2D Corner
+    std::map<PatternKey, HaloPattern> inner_edge_patterns_;
+    std::map<PatternKey, HaloPattern> parallel_edge_patterns_send;
+    std::map<PatternKey, HaloPattern> parallel_edge_patterns_recv;
+
+    // For 3D Corner
+    std::map<PatternKey, HaloPattern> inner_vertex_patterns_;
+    std::map<PatternKey, HaloPattern> parallel_vertex_patterns_send;
+    std::map<PatternKey, HaloPattern> parallel_vertex_patterns_recv;
+
+    // For Coupling (Parallel Corner): patterns are directed (src -> dst)
+    std::map<CouplingPatternKey, HaloPattern> coupling_parallel_edge_patterns_send;
+    std::map<CouplingPatternKey, HaloPattern> coupling_parallel_edge_patterns_recv;
+    std::map<CouplingPatternKey, HaloPattern> coupling_parallel_vertex_patterns_send;
+    std::map<CouplingPatternKey, HaloPattern> coupling_parallel_vertex_patterns_recv;
+
+    // 复用的 send / recv 缓冲区（MPI 并行用）
+    std::vector<std::vector<double>> send_buf;
+    std::vector<std::vector<double>> recv_buf;
+    std::vector<MPI_Request> req_send, req_recv;
+    std::vector<MPI_Status> stat_send, stat_recv;
+    std::vector<int32_t> length, length_corner_recv;
+
+    //=========================================================================
+
+    void build_inner_1DCorner_pattern(StaggerLocation loc, int nghost);
+    void build_parallel_1DCorner_pattern(StaggerLocation loc, int nghost);
+    void build_inner_2DCorner_pattern(StaggerLocation loc, int nghost);
+    void build_parallel_2DCorner_pattern(StaggerLocation loc, int nghost);
+    void build_inner_3DCorner_pattern(StaggerLocation loc, int nghost);
+    void build_parallel_3DCorner_pattern(StaggerLocation loc, int nghost);
+
+    // Coupling (Parallel) corner patterns (directed src -> dst)
+    void build_coupling_parallel_2DCorner_pattern(const std::string &src,
+                                                  const std::string &dst,
+                                                  StaggerLocation loc,
+                                                  int nghost);
+    void build_coupling_parallel_3DCorner_pattern(const std::string &src,
+                                                  const std::string &dst,
+                                                  StaggerLocation loc,
+                                                  int nghost);
+
+    void mpi_exchange_edge_meta(
+        const std::map<int, std::vector<EdgeMeta>> &meta_to_send,
+        std::vector<EdgeMeta> &recv_metas);
+    void mpi_exchange_vertex_meta(
+        const std::map<int, std::vector<VertexMeta>> &meta_to_send,
+        std::vector<VertexMeta> &recv_metas);
+
+    bool field_active_(int fid, int iblock) const
+    {
+        return fld_->field(fid, iblock).is_allocated();
+    }
+};

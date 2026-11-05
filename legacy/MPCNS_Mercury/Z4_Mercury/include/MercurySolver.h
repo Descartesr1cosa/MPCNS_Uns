@@ -1,0 +1,362 @@
+#pragma once
+
+#include "00_Mercury_Const.h"
+#include "6_io/IOModule.h"
+
+#include "1_Boundary.h"
+#include "0_SolverFields.h"
+#include "2_Initial.h"
+#include "3_Control.h"
+#include "9_runtime/PartitionProfiler.h"
+#include "MercuryPhysicsTypes.h"
+#include "4_halo/HaloEdgeOwner.h"
+#include "7_metric/SingularEdgeRegistry.h"
+#include "mpcns/compat/legacy_state_view_adapter.hpp"
+#include "mpcns/geometry/geometry_snapshot.hpp"
+#include "mpcns/state/simulation_state.hpp"
+
+#include <petscksp.h>
+
+#include <memory>
+
+// ---- forward declarations (avoid heavy includes in header) ----
+class Grid;
+namespace TOPO
+{
+    struct Topology;
+}
+namespace HALO_OWNER
+{
+    struct EdgeOwnerSyncPattern;
+}
+class Field;
+class Halo;
+class Param;
+class FieldBlock;
+namespace MPCNS
+{
+    class SimulationContext;
+}
+
+class MercurySolver
+{
+public:
+    MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
+                  TOPO::Topology *topo_equiv = nullptr,
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
+                  METRIC::SingularEdgeRegistry *singular_edges = nullptr);
+    // Production construction path.  The runtime owns Grid/Topology/Field/
+    // Halo and must outlive this solver; Mercury retains direct references so
+    // its specialized boundary schedule can remain numerically unchanged.
+    MercurySolver(MPCNS::SimulationContext &runtime,
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
+                  METRIC::SingularEdgeRegistry *singular_edges = nullptr);
+    ~MercurySolver();
+    void SetupPartitionProfiler_();
+
+    static void RegisterFields(Field *fld, int ngg);
+    static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
+    static void RegisterHaloFields(Field *fld, Halo *halo);
+
+    // Explicit, opt-in post-processing export interface.
+    void WritePostStaticData(const std::string &output_directory,
+                             POST::WriteOptions options = {}) const;
+
+    void Advance();
+
+private:
+    // --- core pointers ---
+    Grid *grd_{nullptr};
+    TOPO::Topology *topo_{nullptr};
+    Field *fld_{nullptr};
+    Halo *halo_{nullptr};
+    Param *par_{nullptr};
+
+    TOPO::Topology *topo_equiv_{nullptr};
+    HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
+    METRIC::SingularEdgeRegistry *singular_edges_{nullptr};
+    // --- components ---
+    Control control_;
+    // Optional trial-run profiler (setup key profile_run); inert when disabled.
+    PROFILE::PartitionProfiler profiler_;
+    MercuryBoundary mercury_bound_;
+    IOModule io_;
+    Mercury_Initial initial_;
+    RunData *run_data_;
+    RuntimeMonitor *runtime_data_;
+
+    // Optional post-data hooks. They are controlled by setup parameters and
+    // remain disabled when those parameters are absent.
+    bool post_static_output_enabled_{false};
+    std::string post_output_path_{"./DATA_bin"};
+    POST::WriteOptions post_write_options_;
+
+    // --- cached field ids  ---
+    SolverFields fid_;
+    mpcns::geometry::GeometrySnapshot geometry_snapshot_;
+    mpcns::compat::LegacyStateLayoutBinding state_layout_binding_;
+    std::unique_ptr<mpcns::compat::LegacyStateViewAdapter> state_view_adapter_;
+    // Declaration order defines destruction: Workspace is released before its
+    // SimulationState, adapter, and layout. Application-owned FieldStorage
+    // must outlive this solver and every borrowed StateView.
+    std::unique_ptr<mpcns::state::SimulationState> simulation_state_;
+    std::unique_ptr<mpcns::state::Workspace> state_workspace_;
+    struct JstarStateBlockViews
+    {
+        mpcns::state::StateView xi;
+        mpcns::state::StateView eta;
+        mpcns::state::StateView zeta;
+    };
+    // Indexed directly by local block. Filled once after Workspace binding;
+    // valid until the application destroys/reallocates FieldStorage, which it
+    // must not do during a MercurySolver lifetime.
+    std::vector<JstarStateBlockViews> jstar_state_views_;
+    mpcns::state::QuantityId state_e_xi_, state_e_eta_, state_e_zeta_;
+    mpcns::state::QuantityId state_rhs_b_xi_, state_rhs_b_eta_, state_rhs_b_zeta_;
+    mpcns::state::StateHandle state_jstar_xi_, state_jstar_eta_, state_jstar_zeta_;
+
+    // --- constants ---
+    double gamma_{0.0};
+    double NA{0.0};
+    double R_uni{0.0};
+    double k_Boltz{0.0};
+    double q_e{0.0};
+    double mu0{0.0};
+    double dt{0.0};
+    double dt_hall{0.0};
+    double dt_sub{0.0};
+    double ne_hall_floor{0.0};
+    double ne_hall_floor_dimensional{0.0};
+
+    double U_ref{0.0};
+    double L_ref{0.0};
+    double B_ref{0.0};
+    double T_ref{0.0};
+    double n_ref{0.0};
+    double rho_ref{0.0};
+    double M_ref{0.0};
+    double M_H{0.0};
+    double M_Na{0.0};
+    double m_H{0.0};
+    double m_Na{0.0};
+    double state_coeff_H{0.0};
+    double state_coeff_Na{0.0};
+    double CFL{0.0};
+    double hall_coef{0.0};
+    double ambi_coef{0.0};
+    double hall_taper_r_min{0.0};
+    double hall_taper_r_max{0.0};
+
+    double momentum_induce_coeff{0.0};
+    double momentum_hall_coeff{0.0};
+
+    double inver_MA2{0.0};
+    double inver_Rem{0.0};
+
+    ResistiveEdgeEMFControl resist_control;
+    ArtificialResistivityControl arti_resist_control;
+    AmbipolarEdgeEMFControl ambipolar_control;
+
+    struct ImplicitResistiveDof
+    {
+        TOPO::EntityKey edge;
+        double eta = 0.0;
+    };
+
+    std::vector<TOPO::EntityKey> resist_owner_edges_sorted_;
+    std::vector<ImplicitResistiveDof> implicit_resistive_dofs_;
+    std::vector<double> implicit_resistive_local_;
+    std::vector<Scalar> resist_Bstar_xi_;
+    std::vector<Scalar> resist_Bstar_eta_;
+    std::vector<Scalar> resist_Bstar_ze_;
+    std::vector<Scalar> local_arti_eta_xi_, local_arti_eta_eta_, local_arti_eta_ze_;
+    bool local_arti_eta_ready_{false};
+
+    // Topology is immutable after solver setup.  Reuse the sorted shared-edge
+    // view and the owner-reduction schedule in every explicit/implicit alias
+    // reduction instead of rebuilding them in each RHS call.  Only the owner of
+    // a shared class consumes the sum of its oriented member values, so the
+    // reduction is a point-to-point gather to the owner rank, not a global
+    // Allreduce over every shared class.
+    bool edge_alias_reduce_cache_ready_{false};
+    std::vector<const TOPO::EquivClass *> edge_alias_reduce_classes_;
+    struct EdgeAliasReduceLocalTerm_
+    {
+        std::size_t slot=0; // index into edge_alias_reduce_local_sum_
+        TOPO::EntityKey edge;
+        int orient_sign=1;
+    };
+    struct EdgeAliasReduceOwnerWrite_
+    {
+        std::size_t slot=0; // local partial sum of this class
+        TOPO::EntityKey edge;
+        int orient_sign=1;
+        double member_count=1.0;
+    };
+    struct EdgeAliasReducePeer_
+    {
+        int rank=-1;
+        std::vector<std::size_t> slots;  // send: local slots, ascending class order
+        std::vector<std::size_t> writes; // recv: owner-write indices, same order
+        std::vector<double> buffer;
+    };
+    std::vector<EdgeAliasReduceLocalTerm_> edge_alias_reduce_local_terms_;
+    std::vector<EdgeAliasReduceOwnerWrite_> edge_alias_reduce_owner_writes_;
+    std::vector<double> edge_alias_reduce_local_sum_;
+    std::vector<double> edge_alias_reduce_owner_sum_;
+    std::vector<EdgeAliasReducePeer_> edge_alias_reduce_send_peers_;
+    std::vector<EdgeAliasReducePeer_> edge_alias_reduce_recv_peers_;
+
+    bool implicit_resistive_Eres_cleared_{false};
+    KSP implicit_resistive_ksp_{nullptr};
+    Mat implicit_resistive_A_{nullptr};
+    Vec implicit_resistive_x_{nullptr};
+    Vec implicit_resistive_b_{nullptr};
+    double implicit_resistive_dt_{0.0};
+    bool implicit_resistive_ready_{false};
+    bool implicit_resistive_has_guess_{false};
+
+    std::vector<HallFaceScratchBlock> hall_face_scratch_;
+    void SetupHallFaceScratch_();
+    void SetupCellReconstructionWeights_();
+
+private:
+    //=========================================================================
+    // TOOLS
+    void calc_Bcell();
+    void calc_Jcell();
+    void calc_divB();
+    void calc_PV();
+    void calc_Uplus();
+    void UpdateFluidDerivedFields_();
+    void UpdateMagneticDerivedFields_();
+    void UpdateDerivedFields_();
+    void calc_physical_constant(Param *par);
+    void PrintMinMaxDiagnostics_();
+    // void Hall_Num_Limiter(double rhoH, double rhoNa, double *num);
+    NumInfo Hall_Num_Limiter(double rhoH, double rhoNa);
+    double HallRadialTaper_(double x, double y, double z);
+    double HallRadialTaperEdge_(int ib, StaggerLocation loc, int i, int j, int k);
+
+    //=========================================================================
+
+    bool StepOnce();
+    void Compute_Timestep();
+    bool UpdateControlAndOutput();
+
+    //=========================================================================
+    void ZeroRHS_();
+    void AssembleRHS_Induction_CT_();
+    void ApplyUpdate_Euler_();
+    //---------------------------------------------------------------
+    // For Fluid
+    void Scheme_U_();
+    void AddSourceToRHS_Fluid();
+    //---------------------------------------------------------------
+    // For Magnetic
+    double MercuryResistivityShape_(double radius) const;
+    void AddArtificialResistivityToEdgeEMF_();
+    void AddLocalArtificialResistivityToEdgeEMF_();
+    void AddIdealEdgeEMF_();
+    void AddHallEdgeEMF_();
+    void AddAmbipolarEdgeEMF_();
+    void Calc_J_Edge();
+    void SetupJstarWorkspace_();
+    void ComputeRegularEdgeCurrent_(const IdTriplet &fid_Bface,
+                                    const IdTriplet &fid_Jedge);
+    void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
+                                      const IdTriplet &fid_Jedge);
+    void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);
+
+    // 只更新 Bface: Bface += dt_sub * RHS_b
+    void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);
+
+    void SetupImplicitResistiveDiffusion_();
+    void DestroyImplicitResistiveDiffusion_();
+    void BuildImplicitResistiveEdgeDofMap_();
+    void SolveImplicitResistiveDiffusion_(double dt_step);
+    void ApplyImplicitResistiveUpdate_(double dt_step);
+    void SnapshotImplicitResistiveBstar_();
+    void RestoreImplicitResistiveBstar_();
+    void UnpackVecToImplicitEres_(Vec X);
+    void PackImplicitJedgeToVec_(Vec v, const IdTriplet &fid_Jedge,
+                                 bool multiply_eta, double x_shift, const PetscScalar *x_extra);
+    void CalcImplicitDeltaJedgeFromDeltaB_();
+    double ImplicitResistiveEtaAtEdge_(const TOPO::EntityKey &e) const;
+    static PetscErrorCode MatMultImplicitResistive_(Mat A, Vec X, Vec Y);
+
+    void BuildHallFaceEMF_Rusanov_diff_();
+    //--------------------------------
+    //  For Ideal
+    void AssembleOneDirectionEMF_(int dir, FieldBlock &E_face,
+                                  FieldBlock &Bxi, FieldBlock &Beta, FieldBlock &Bzeta,
+                                  FieldBlock &Badd_xi, FieldBlock &Badd_eta, FieldBlock &Badd_zeta,
+                                  FieldBlock &Jac,
+                                  FieldBlock &JDxi, FieldBlock &JDet, FieldBlock &JDze,
+                                  FieldBlock &Uplus);
+    void AssembleEdgeEMF_FromFaceE_Ideal_();
+    void AssembleSingularEdgeEMF_NonHall_();
+    void AssembleSingularEdgeEMF_HallExplicit_();
+    void ApplyStationaryWallNonResistiveEMF_();
+    //---------------------------------------------------------------
+    struct DebugItem
+    {
+        double val = 0.0;
+        double xyz[3] = {0.0, 0.0, 0.0};
+
+        int rank = -1;
+        int blk = -1;
+        int i = 0, j = 0, k = 0;
+
+        int src_rank = -1;
+        int src_blk = -1;
+        int src_i = 0, src_j = 0, src_k = 0;
+
+        int fid = -1;
+        int comp = -1;
+
+        // relation:
+        //   0 = self
+        //   1 = topo-equivalent
+        //   2 = halo-peer
+        //   3 = physical-touch
+        int relation = 0;
+
+        // patch tag:
+        //   0 = self
+        //   1 = face-inner
+        //   2 = face-par
+        //   3 = edge-inner
+        //   4 = edge-par
+        //   5 = vertex-inner
+        //   6 = vertex-par
+        //   7 = physical
+        int patch_tag = 0;
+
+        // aux[0], aux[1], aux[2], aux[3] 预留:
+        //   aux[0] 可作 valid flag / physical dir / 其他整数信息
+        int aux[4] = {0, 0, 0, 0};
+    };
+
+    void DebugFindExtremaInner(const std::vector<int> &fids = {},
+                               const std::vector<std::string> &names = {},
+                               bool print_min = true,
+                               bool print_max = true);
+
+    void DebugDumpPointFields(int query_rank,
+                              int blk, int i, int j, int k,
+                              const std::vector<int> &fids = {},
+                              const std::vector<std::string> &names = {});
+
+    void DebugDumpPointPartners(int query_rank,
+                                int blk, int i, int j, int k,
+                                const std::vector<int> &fids = {},
+                                const std::vector<std::string> &names = {},
+                                int ngh = 0,
+                                bool include_topo = true,
+                                bool include_halo = true,
+                                bool include_physical = true);
+
+    void Debug_TestJOperator_Manufactured(int test_id = -1);
+    //=========================================================================
+};
