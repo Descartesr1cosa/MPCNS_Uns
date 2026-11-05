@@ -5,7 +5,8 @@
 #   fine   : mesh of 03_refine.sh (NP must be its NP), starts from its fine_fields.unsb (or RESTART=1 from fine_steady/DATA)
 # MODE=fast (default): B_RATIO=32 + 4-level multigrid: ~20x fewer iterations than the time-accurate run, but the converged state is 15-70 % off (docs/Multigrid.md 6.5):
 #                      use it to get a first approximation (e.g. the coarse solution for the refinement indicators).
-# MODE=accurate:       B_RATIO=4, no multigrid (it does not help once B limits the convergence): ~8x fewer iterations, a few percent error in rho, B.
+# MODE=accurate:       B_RATIO=4, no multigrid: ~8x fewer iterations than the time-accurate run, a few percent error in rho, B.  Do NOT switch the multigrid on here
+#                      (MG_LEVELS=4 gives the same iteration count and ~10 % more wall time: convergence is limited by B, the multigrid corrects the fluid only; docs/Multigrid.md 11.3).
 # Other knobs (environment): STEADY_TOL (stop when res_H, res_B < tol, default 1e-7), MG_LEVELS, MG_EVERY (4), MG_START (200), MG_RELAX (1; 0.5 removes a residual
 #                      floor of Na+ at small B_RATIO), B_RATIO (cap of the induction step in units of the smallest cell step; > 32 destabilises), LOG_EVERY (100)
 # For the exact steady state use the time-accurate run (04_fine_run.sh, ~24000 steps on the coarse mesh).
