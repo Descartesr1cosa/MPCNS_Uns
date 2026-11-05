@@ -31,6 +31,8 @@ Config Config::from_params(const uns::Params &p)
     c.ind_rtol = p.get_double("induction_rtol", c.ind_rtol);
     c.ind_max_it = p.get_int("induction_max_it", c.ind_max_it);
     c.ind_restart = p.get_int("induction_restart", c.ind_restart);
+    c.ind_ilu = p.get_bool("induction_ilu", false);
+    c.ind_ilu_shift = p.get_double("induction_ilu_shift", c.ind_ilu_shift);
     c.eta_r_inner = p.get_double("mercury_eta_r_inner", c.eta_r_inner);
     c.eta_r_outer = p.get_double("mercury_eta_r_outer", c.eta_r_outer);
     c.eta_width = p.get_double("mercury_eta_width", c.eta_width);
@@ -41,6 +43,7 @@ Config Config::from_params(const uns::Params &p)
     c.t_end = p.get_double("max_Time", 1.0);
     c.log_every = p.get_int("log_every", 10);
     c.output_every = p.get_int("output_step", 0);
+    c.restart_every = p.get_int("restart_step", 0);
     c.output_start = static_cast<long>(p.get_double("output_start", 0));
     c.output_dir = p.get_string("output_dir", "DATA");
     c.write_vtk = p.get_bool("write_vtk", true);

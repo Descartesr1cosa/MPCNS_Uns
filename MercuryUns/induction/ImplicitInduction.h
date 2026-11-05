@@ -43,6 +43,9 @@ public:
 private:
     void apply_A(const std::vector<double> &x, std::vector<double> &y, double dt);
     double dot_owned(const std::vector<double> &a, const std::vector<double> &b);
+    void build_precond_pattern();
+    void factor_precond(double dt, const std::vector<char> &dir);
+    void apply_precond(const std::vector<double> &v, std::vector<double> &z, const std::vector<char> &dir);
 
     const uns::LocalMesh &lm_;
     const uns::Geometry &geo_;
@@ -59,6 +62,15 @@ private:
     std::vector<std::int64_t> ce_ptr_;        // owned cell -> (edge, weight*t_e) list
     std::vector<uns::Id> ce_edge_;
     std::vector<uns::Vec3> ce_wt_;
+    // block-Jacobi ILU(0) preconditioner of  I + dt M d1^T S2 d1  on the owned edges (couplings to other ranks dropped, Hall part ignored)
+    bool use_ilu_ = true;
+    double shift_ = 0.0;
+    bool use_guess_ = true;
+    std::vector<double> corr_;
+    std::vector<std::int64_t> pc_ptr_;
+    std::vector<uns::Id> pc_col_;
+    std::vector<double> pc_coef_, pc_val_;
+    std::vector<std::int64_t> pc_diag_;
     std::vector<double> diag_;                // Jacobi diagonal estimate
     std::vector<double> d2_;                  // sum_f star2 d1^2 over owned faces, assembled
     // work arrays

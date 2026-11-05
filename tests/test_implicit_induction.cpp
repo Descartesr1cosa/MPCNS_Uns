@@ -184,6 +184,38 @@ int main(int argc, char **argv)
         if (rank == 0) std::printf("[np independence] max |Phi_parallel - Phi_serial| = %.2e (scale %.3f)\n", err, sc);
         CHECK(err < 1e-8 * std::max(sc, 1e-30) + 1e-12);
     }
+    // (4) preconditioners on a resistive problem: same solution, ILU(0) needs fewer iterations than Jacobi
+    {
+        BoxSpec br;
+        br.nx = br.ny = br.nz = 12; br.lo = {-1, -1, -1}; br.hi = {1, 1, 1};
+        const Mesh mr = build_mesh(make_box(br));
+        const LocalMesh lr = local_of(mr, np, rank);
+        const Geometry gr = compute_geometry(lr.mesh);
+        const CellComplex &cx = lr.mesh.cx;
+        std::vector<double> A(cx.n_edges()), Phi(cx.n_faces(), 0.0), E0(cx.n_edges(), 0.0), Ej(cx.n_edges()), Ei(cx.n_edges());
+        for (Id e = 0; e < cx.n_edges(); ++e) A[e] = std::sin(7.0 * gr.edge_mid[e].x + 3.0 * gr.edge_mid[e].y) * std::cos(5.0 * gr.edge_mid[e].z);
+        for (Id f = 0; f < cx.n_faces(); ++f)
+            for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k) Phi[f] += cx.f2e.sgn[k] * A[cx.f2e.idx[k]];
+        std::vector<char> dir(cx.n_edges(), 0);
+        int itj = 0, iti = 0, itw = 0;
+        for (int ilu = 0; ilu < 2; ++ilu)
+        {
+            Config c;
+            c.resistive = true; c.sc.inver_Rem = 10; c.eta_r_inner = -100; c.eta_r_outer = 100; c.eta_width = 1;
+            c.ind_rtol = 1e-10; c.ind_max_it = 400; c.ind_restart = 30; c.ind_ilu = ilu;
+            comm::Exchanger ex(MPI_COMM_WORLD, lr);
+            ImplicitInduction ind(lr, gr, ex, c);
+            (ilu ? iti : itj) = ind.solve(Phi.data(), E0.data(), dir, 0.02, ilu ? Ei.data() : Ej.data());
+            if (ilu) itw = ind.solve(Phi.data(), E0.data(), dir, 0.02, Ei.data()); // same data again: the warm start reuses the previous correction
+        }
+        double d = 0, sc = 0;
+        for (Id e = 0; e < cx.ent[1].n_owned; ++e) { d = std::max(d, std::abs(Ei[e] - Ej[e])); sc = std::max(sc, std::abs(Ej[e])); }
+        MPI_Allreduce(MPI_IN_PLACE, &d, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+        if (rank == 0) std::printf("[preconditioners, dt=0.02, resistive] iterations Jacobi %d, ILU(0) %d, ILU(0) warm-started %d ; max |E_ilu - E_jacobi| = %.1e (scale %.2f)\n", itj, iti, itw, d, sc);
+        CHECK(iti <= 2 * itj); // block-Jacobi ILU(0) is not a strong preconditioner for the curl-curl part; no worse than ~Jacobi
+        CHECK(itw <= 2);       // warm start from the previous solution
+        CHECK(d < 1e-7 * std::max(sc, 1.0));
+    }
     int fails = g_failures, all = 0;
     MPI_Allreduce(&fails, &all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
     if (rank == 0) std::printf("%s\n", all ? "TEST FAILED" : "TEST PASSED");

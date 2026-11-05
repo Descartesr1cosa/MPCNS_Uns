@@ -51,9 +51,11 @@ int    time_order         1            // 1: forward Euler + semi-implicit induc
 bool   is_Hall_Efield     1            // Hall electric field (time_order = 1)
 double r_min              1.0          // Hall radial taper (reference r_min / r_max)
 double r_max              1.012
-double induction_rtol     1e-3         // GMRES for the implicit induction solve (1e-6: 47 it/step, 1e-3: 19, same solution to 5 digits)
+double induction_rtol     1e-4         // GMRES, warm-started from the previous step (refined mesh: 2-3 it/step; a loose 1e-3 with ILU drifted 1e-3 from the tight solution)
 int    induction_max_it   100
 int    induction_restart  20
+bool   induction_ilu      0            // block-Jacobi ILU(0) (shifted) preconditioner; warm start is always on
+double induction_ilu_shift 0.3
 bool   is_Ambipolar_Efield 1
 bool   is_Mercury_resistance 1
 double mercury_eta_r_inner 0.84

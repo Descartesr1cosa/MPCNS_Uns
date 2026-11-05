@@ -32,8 +32,10 @@ struct Config
     int time_order = 2;             // 2: SSP-RK2 (explicit EMF, resistive split step); 1: forward Euler + implicit induction (E unknown)
     bool hall = false;              // Hall electric field (only with time_order = 1)
     double hall_r_min = 1.0, hall_r_max = 1.012; // radial taper of the Hall term (legacy r_min / r_max)
-    double ind_rtol = 1e-6;         // implicit induction solve (GMRES)
+    double ind_rtol = 1e-4;         // implicit induction solve (GMRES)
     int ind_max_it = 100, ind_restart = 20;
+    double ind_ilu_shift = 0.3;     // relative diagonal shift of the incomplete factorisation
+    bool ind_ilu = false;           // block-Jacobi ILU(0) preconditioner (false: Jacobi)
     bool resistive = false;         // Mercury interior resistivity (implicit, window eta_max * shape(r))
     double eta_r_inner = 0.84, eta_r_outer = 1.04, eta_width = 0.02;
     double res_rtol = 1e-6;
@@ -46,6 +48,7 @@ struct Config
     double t_end = 1.0;
     int log_every = 10;
     int output_every = 0;           // steps between ParaView/field dumps (0: only at the end)
+    int restart_every = 0;          // steps between restart files (fields_final.unsb is rewritten), 0: only at the end
     long output_start = 0;          // first step eligible for periodic dumps (debugging)
     std::string output_dir = "DATA";
     bool write_vtk = true;

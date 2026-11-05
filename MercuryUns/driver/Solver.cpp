@@ -345,6 +345,7 @@ void Solver::run()
         dt = step(cfg_.t_end - time_);
         if (cfg_.log_every > 0 && nstep_ % cfg_.log_every == 0) log(collect(dt));
         if (cfg_.output_every > 0 && nstep_ % cfg_.output_every == 0 && nstep_ >= cfg_.output_start && cfg_.write_vtk) write_vtk();
+        if (cfg_.restart_every > 0 && nstep_ % cfg_.restart_every == 0) write_global_fields(cfg_.output_dir + "/fields_final.unsb");
     }
     const Diagnostics d = collect(dt);
     log(d);

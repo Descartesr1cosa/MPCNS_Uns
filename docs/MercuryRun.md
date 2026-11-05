@@ -126,6 +126,24 @@ Refined mesh (125k cells, 56 ranks, t = 25 -> 26, `mercury.txt`): Hall off 3579 
 2-4x more steps; the Hall term changes the state at t = 26 by only ~1 % (hall_coef = 1.3e-4: Hall is a small correction in these units).
 Not done: second-order time integration of the induction, Hall sub-cycling (not needed), tuning of the preconditioner (the Jacobi preconditioner ignores the L coupling).
 
+## Preconditioning of the implicit induction, dense mesh and stability test
+Measured on the refined mesh of 125k cells (56 ranks, 1500 steps from t = 25, rtol 1e-3 unless noted):
+| variant | GMRES it/step | wall/step | max rel. difference to the tight solution (rtol 1e-9) |
+|---|---|---|---|
+| Jacobi, cold start, rtol 1e-9 (reference) | 72.8 | 97.7 ms | - |
+| Jacobi + **warm start** (previous step's implicit correction as initial guess) | 2.7 | 12.7 ms | U_H 4e-5, B flux 4e-7 |
+| shifted block-Jacobi ILU(0) + warm start | 1.6 | 14.1 ms | U_H 5e-4, U_Na 2e-3, B flux 1e-5 |
+On the sparse mesh (28 ranks) ILU(0) was 1.7x better than Jacobi in iterations (2.1 vs 3.6 it/step), on the refined mesh it is not (more setup, weaker for the
+curl-curl part; a plain ILU(0) of `I + dt M L` is unstable for large dt, hence the diagonal shift 0.3). Conclusion: the warm start is what matters (19 -> 3.6 it/step on
+the sparse mesh, 73 -> 2.7 on the refined one; the old explicit step cost 16 ms, the semi-implicit one with Hall now 12.7 ms); defaults: Jacobi, rtol 1e-4 (`induction_ilu=1` selects ILU).
+Hall explicit limit for reference: `dt_hall_explicit` in the log (1e-4 .. 1e-5 here).
+
+Dense mesh (`scripts/03_refine.sh`): 574665 cells (14114 / 46647 / 237232 / 276672 at levels 0-3, 45924 polyhedra), first fluid layer 0.0063 R_M (8x finer than the coarse
+mesh), B transfer div B 1.1e-11, partition imbalance 1.02 (cost profile of the coarse run). Short run from the coarse state at t = 25, 56 ranks, 3000 steps:
+**stable** (4 min 22 s): divB 1.6e-12 constant, min rho_H 0.043 -> 0.028 (the cavity keeps deepening while Na+ accumulates; the legacy minimum is 0.006), dt 1.5e-4 -> 8.5e-5
+(still decreasing slowly as the near-planet cells fill up), 9 GMRES it/step, 87 ms/step, compute imbalance 1.12, wait 28 %. Estimated cost of 25 more time units:
+~3e5 steps x 87 ms = 7 h. Scripts for the whole chain: `scripts/` (README there).
+
 ## NOT done yet
 1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
 2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and

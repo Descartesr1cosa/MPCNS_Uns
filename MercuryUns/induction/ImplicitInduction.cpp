@@ -9,7 +9,7 @@ using namespace uns;
 
 ImplicitInduction::ImplicitInduction(const LocalMesh &lm, const Geometry &geo, comm::Exchanger &ex, const Config &cfg)
     : lm_(lm), geo_(geo), ex_(ex), resistive_(cfg.resistive && cfg.sc.inver_Rem > 0), hall_(cfg.hall && cfg.sc.hall_coef > 0), rtol_(cfg.ind_rtol),
-      max_it_(cfg.ind_max_it), restart_(std::max(2, cfg.ind_restart))
+      max_it_(cfg.ind_max_it), restart_(std::max(2, cfg.ind_restart)), use_ilu_(cfg.ind_ilu), shift_(cfg.ind_ilu_shift)
 {
     const CellComplex &cx = lm.mesh.cx;
     const Id ne = cx.n_edges(), nc = cx.n_cells();
@@ -98,6 +98,7 @@ ImplicitInduction::ImplicitInduction(const LocalMesh &lm, const Geometry &geo, c
     jcell_.assign(3 * static_cast<std::size_t>(nc), 0.0);
     part_.assign(2 * static_cast<std::size_t>(ne), 0.0);
     tmp_.assign(ne, 0.0);
+    if (use_ilu_ && active()) build_precond_pattern();
 }
 
 void ImplicitInduction::set_frozen_state(const double *B0, const double *ne_eff)
@@ -179,12 +180,104 @@ double ImplicitInduction::dot_owned(const std::vector<double> &a, const std::vec
     return s;
 }
 
+void ImplicitInduction::build_precond_pattern()
+{
+    const CellComplex &cx = lm_.mesh.cx;
+    const Id no = cx.ent[1].n_owned;
+    pc_ptr_.assign(no + 1, 0);
+    pc_col_.clear(); pc_coef_.clear();
+    std::vector<std::pair<Id, double>> row;
+    for (Id e = 0; e < no; ++e)
+    {
+        row.clear();
+        row.emplace_back(e, 0.0); // the diagonal is always present
+        for (auto kf = cx.e2f.begin(e); kf < cx.e2f.end(e); ++kf)
+        {
+            const Id f = cx.e2f.idx[kf];
+            const double se = cx.e2f.sgn[kf];
+            for (auto k = cx.f2e.begin(f); k < cx.f2e.end(f); ++k)
+            {
+                const Id e2 = cx.f2e.idx[k];
+                if (e2 >= no) continue; // other ranks: block Jacobi
+                row.emplace_back(e2, m_[e] * se * cx.f2e.sgn[k] * geo_.star2[f]);
+            }
+        }
+        std::sort(row.begin(), row.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+        for (std::size_t i = 0; i < row.size();)
+        {
+            std::size_t j = i;
+            double sum = 0;
+            for (; j < row.size() && row[j].first == row[i].first; ++j) sum += row[j].second;
+            pc_col_.push_back(row[i].first);
+            pc_coef_.push_back(sum);
+            i = j;
+        }
+        pc_ptr_[e + 1] = static_cast<std::int64_t>(pc_col_.size());
+    }
+    pc_val_.assign(pc_col_.size(), 0.0);
+    pc_diag_.assign(no, 0);
+    for (Id e = 0; e < no; ++e)
+        for (auto k = pc_ptr_[e]; k < pc_ptr_[e + 1]; ++k) if (pc_col_[k] == e) pc_diag_[e] = k;
+}
+
+void ImplicitInduction::factor_precond(double dt, const std::vector<char> &dir)
+{
+    const Id no = lm_.mesh.cx.ent[1].n_owned;
+    for (Id e = 0; e < no; ++e)
+        for (auto k = pc_ptr_[e]; k < pc_ptr_[e + 1]; ++k)
+        {
+            const Id c = pc_col_[k];
+            // Dirichlet unknowns are removed: identity row and no coupling into them
+            pc_val_[k] = (dir[e] || dir[c]) ? (c == e ? 1.0 : 0.0) : (c == e ? 1.0 : 0.0) + dt * pc_coef_[k];
+            if (c == e && !dir[e]) pc_val_[k] += shift_ * dt * pc_coef_[k]; // relaxed diagonal: keeps the incomplete factors stable
+        }
+    std::vector<std::int64_t> pos(no, -1);
+    for (Id i = 0; i < no; ++i) // ILU(0), IKJ variant
+    {
+        for (auto k = pc_ptr_[i]; k < pc_ptr_[i + 1]; ++k) pos[pc_col_[k]] = k;
+        for (auto kk = pc_ptr_[i]; kk < pc_ptr_[i + 1] && pc_col_[kk] < i; ++kk)
+        {
+            const Id k = pc_col_[kk];
+            pc_val_[kk] /= pc_val_[pc_diag_[k]];
+            const double lik = pc_val_[kk];
+            for (auto jj = pc_diag_[k] + 1; jj < pc_ptr_[k + 1]; ++jj)
+            {
+                const std::int64_t p = pos[pc_col_[jj]];
+                if (p >= 0) pc_val_[p] -= lik * pc_val_[jj];
+            }
+        }
+        if (!(std::abs(pc_val_[pc_diag_[i]]) > 1e-12)) pc_val_[pc_diag_[i]] = 1.0; // breakdown guard
+        for (auto k = pc_ptr_[i]; k < pc_ptr_[i + 1]; ++k) pos[pc_col_[k]] = -1;
+    }
+}
+
+void ImplicitInduction::apply_precond(const std::vector<double> &v, std::vector<double> &z, const std::vector<char> &dir)
+{
+    const Id no = lm_.mesh.cx.ent[1].n_owned, ne = lm_.mesh.cx.n_edges();
+    for (Id i = 0; i < no; ++i) // L y = v (unit lower)
+    {
+        double s = dir[i] ? 0.0 : v[i];
+        for (auto k = pc_ptr_[i]; k < pc_diag_[i]; ++k) s -= pc_val_[k] * z[pc_col_[k]];
+        z[i] = s;
+    }
+    for (Id i = no; i-- > 0;) // U z = y
+    {
+        double s = z[i];
+        for (auto k = pc_diag_[i] + 1; k < pc_ptr_[i + 1]; ++k) s -= pc_val_[k] * z[pc_col_[k]];
+        z[i] = dir[i] ? 0.0 : s / pc_val_[pc_diag_[i]];
+    }
+    for (Id e = no; e < ne; ++e) z[e] = 0.0;
+    ex_.forward(Dim::Edge, z.data(), 1); // refresh the alias copies from the owners
+}
+
 int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const std::vector<char> &dir, double dt, double *E, double *rel_res)
 {
     const CellComplex &cx = lm_.mesh.cx;
     const Id ne = cx.n_edges();
     using Vecd = std::vector<double>;
     Vecd x0(E_expl, E_expl + ne), b(ne), r(ne), Ax(ne);
+    if (use_guess_ && corr_.size() == static_cast<std::size_t>(ne)) // warm start: the implicit correction of the previous step
+        for (Id e = 0; e < ne; ++e) if (!dir[e]) x0[e] += corr_[e];
     // b = E_expl + F(Phi^n)
     std::vector<double> Fn(ne);
     apply_F(Phi_n, Fn.data());
@@ -194,6 +287,8 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
     // Jacobi diagonal:  1 + dt m_e d2_e  (the Hall part has no useful diagonal)
     Vecd inv_diag(ne);
     for (Id e = 0; e < ne; ++e) inv_diag[e] = 1.0 / (1.0 + dt * m_[e] * d2_[e]);
+    const bool ilu = use_ilu_ && !pc_ptr_.empty();
+    if (ilu) factor_precond(dt, dir);
 
     const double bnorm = std::sqrt(std::max(dot_owned(b, b), 1e-300));
     double beta = std::sqrt(dot_owned(r, r));
@@ -212,7 +307,8 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
         int j = 0;
         for (; j < m && total < max_it_; ++j, ++total)
         {
-            for (Id e = 0; e < ne; ++e) z[e] = dir[e] ? 0.0 : V[j][e] * inv_diag[e];
+            if (ilu) apply_precond(V[j], z, dir);
+            else for (Id e = 0; e < ne; ++e) z[e] = dir[e] ? 0.0 : V[j][e] * inv_diag[e];
             apply_A(z, w, dt);
             for (Id e = 0; e < ne; ++e) if (dir[e]) w[e] = 0.0;
             for (int i = 0; i <= j; ++i) // modified Gram-Schmidt
@@ -240,11 +336,16 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
             for (int k = i + 1; k < j; ++k) s -= H[i][k] * yv[k];
             yv[i] = s / H[i][i];
         }
-        for (Id e = 0; e < ne; ++e)
         {
-            double s = 0;
-            for (int i = 0; i < j; ++i) s += yv[i] * V[i][e];
-            delta[e] += dir[e] ? 0.0 : s * inv_diag[e];
+            Vecd comb(ne, 0.0);
+            for (Id e = 0; e < ne; ++e)
+            {
+                double s = 0;
+                for (int i = 0; i < j; ++i) s += yv[i] * V[i][e];
+                comb[e] = s;
+            }
+            if (ilu) { apply_precond(comb, z, dir); for (Id e = 0; e < ne; ++e) delta[e] += z[e]; }
+            else for (Id e = 0; e < ne; ++e) delta[e] += dir[e] ? 0.0 : comb[e] * inv_diag[e];
         }
         // true residual
         Vecd xt(ne);
@@ -254,6 +355,8 @@ int ImplicitInduction::solve(const double *Phi_n, const double *E_expl, const st
         beta = std::sqrt(dot_owned(r, r));
     }
     for (Id e = 0; e < ne; ++e) E[e] = x0[e] + delta[e];
+    corr_.assign(ne, 0.0);
+    for (Id e = 0; e < ne; ++e) corr_[e] = dir[e] ? 0.0 : E[e] - E_expl[e];
     if (rel_res) *rel_res = beta / bnorm;
     return total;
 }

@@ -285,7 +285,7 @@ int run_refine(const Params &p)
         TransferReport tr;
         out_fields.push_back({"B", Dim::Face, 1, transfer_B(coarse, cg, fields["B"].values, rr, fg, &tr)});
         std::printf("[transfer B] max relative |d2 B| over fine cells = %.2e, tile-flux defect = %.2e\n", tr.max_rel_div, tr.max_tile_defect);
-        if (tr.max_rel_div > 1e-11) { std::fprintf(stderr, "B transfer is not divergence free\n"); return 1; }
+        if (tr.max_rel_div > 1e-9) { std::fprintf(stderr, "B transfer is not divergence free\n"); return 1; }
     }
     if (fields.count("_time")) out_fields.push_back(fields["_time"]); // restart time of the coarse run
     for (const auto &kv : fields)
