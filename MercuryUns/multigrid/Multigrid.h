@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "Config.h"
+#include "config/Config.h"
 #include "boundary/BoundaryInfo.h"
 #include "fluid/Reconstruction.h"
 #include "uns/comm/Exchanger.h"
@@ -24,6 +24,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 struct MgLevel
 {
     uns::Id n_own = 0, n_rem = 0;

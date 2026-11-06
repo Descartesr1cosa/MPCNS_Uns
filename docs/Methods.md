@@ -1,7 +1,7 @@
 # Numerical methods of MPCNS_Uns — mathematical summary and references
 
 Scope: what the code does, written as formulas, with the place in the code and the literature the technique comes from.
-Everything is nondimensional (reference scales `U_ref, L_ref, B_ref, n_ref, T_ref`, see `MercuryUns/physics/Scales.cpp`).
+Everything is nondimensional (reference scales `U_ref, L_ref, B_ref, n_ref, T_ref`, see `Common/physics/Scales.cpp`).
 Reference numbers `[R#]` are listed in section 11. Statements marked *(empirical)* were measured here, not proven.
 
 Notation: cells $c$, faces $f$, edges $e$, nodes $n$; $\Phi_f$ = magnetic flux through face $f$ (canonical orientation); $E_e$ = line integral of the electric field along edge $e$;
@@ -53,7 +53,7 @@ Calibration from a sparse run. With per-rank compute time per step $\tau_r$ = (w
 $$\min_{a,b\ge0}\sum_r\big(\tau_r-a\,n^f_r-b\,n^s_r\big)^2,\qquad c_{\rm solid}=b/a,$$
 and $c_{\rm comm}=\operatorname{median}_r\big(\text{wait}_r/n^{\rm ghost}_r\big)/a$ are written to `load_profile.json/.txt` and read by `mpcns_pre cost_profile=`. *(empirical: rank-to-rank differences are small, $r^2$ is low; it is a guide, not a fit to trust to 10 %.)*
 
-## 5. Finite-volume fluid (`MercuryUns/fluid`)
+## 5. Finite-volume fluid (`Common/fluid`, `MercuryUns/fluid`)
 
 Per species $s\in\{H^+,Na^+\}$, $U=(\rho,\rho u,E)$, $p=(\gamma-1)(E-\tfrac12\rho|u|^2)$:
 $$\frac{dU_c}{dt}=-\frac1{V_c}\sum_f c2f_{cf}\,\mathcal F_f|A_f|+S_c,\qquad \mathcal F_f=\tfrac12(F(W_L)+F(W_R))\cdot n-\tfrac12\lambda_f(U_R-U_L),\ \ \lambda_f=\max_{L,R}(|u\cdot n|+c_s)$$

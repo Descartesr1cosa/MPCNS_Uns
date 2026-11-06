@@ -13,13 +13,15 @@
 
 #include "TestUtil.h"
 #include "multigrid/Multigrid.h"
-#include "fluid/FluidRHS.h"
+#include "fluid/FluxRHS.h"
+#include "fluid/MercurySources.h"
 #include "uns/generate/HexMesh.h"
 #include "uns/parallel/Distributor.h"
 #include "uns/partition/Partitioner.h"
 #include "uns/refine/Refine.h"
 
 using namespace uns;
+using namespace mhd;
 using namespace mercury;
 
 namespace

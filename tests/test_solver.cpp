@@ -17,6 +17,7 @@
 #include "uns/refine/Refine.h"
 
 using namespace uns;
+using namespace mhd;
 using namespace mercury;
 
 namespace

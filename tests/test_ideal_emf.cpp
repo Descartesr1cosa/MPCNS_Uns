@@ -22,7 +22,7 @@
 #include "uns/refine/Refine.h"
 
 using namespace uns;
-using namespace mercury;
+using namespace mhd;
 
 namespace
 {

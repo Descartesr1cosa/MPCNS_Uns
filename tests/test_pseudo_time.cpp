@@ -17,6 +17,7 @@
 #include "uns/refine/Refine.h"
 
 using namespace uns;
+using namespace mhd;
 using namespace mercury;
 
 namespace
@@ -101,7 +102,7 @@ int main(int argc, char **argv)
         for (int it = 0; it < 20; ++it)
         {
             faraday_update_edge_dt(cx, active, E.data(), dt.data(), Phi.data());
-            worst = std::max(worst, mercury::div_b(cx, Phi.data()).max_rel);
+            worst = std::max(worst, mhd::div_b(cx, Phi.data()).max_rel);
         }
         double g = 0;
         MPI_Allreduce(&worst, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);

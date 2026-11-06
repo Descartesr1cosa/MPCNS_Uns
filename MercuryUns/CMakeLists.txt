@@ -1,30 +1,17 @@
-# MercuryUns : two-ion Hall-MHD on the unstructured signed cell complex.
-# One sub-directory per concern; each only sees the ones listed before it.
+# MercuryUns : two-ion (H+, Na+) Hall-MHD of Mercury on the unstructured signed cell complex.  Mercury-specific code only;
+# everything model independent lives in Common/.
 add_library(mercury_core STATIC
-    state/FieldSet.cpp
-    induction/Faraday.cpp
+    driver/Solver.cpp
     multigrid/Multigrid.cpp
-    induction/EdgeEMF.cpp
-    induction/IdealEMF.cpp
-    induction/Current.cpp
+    initial/Initial.cpp
+    fluid/MercurySources.cpp
     induction/Resistive.cpp
-    induction/ImplicitInduction.cpp
     physics/Exosphere.cpp
     physics/Gyration.cpp
-    physics/Ambipolar.cpp
-    physics/Scales.cpp
-    Config.cpp
-    boundary/BoundaryInfo.cpp
-    fluid/Reconstruction.cpp
-    fluid/FluidRHS.cpp
-    initial/Initial.cpp
-    io/GlobalFields.cpp
-    driver/Solver.cpp
-    diagnostics/DivB.cpp
-    hall/HallEMF.cpp)
+    physics/Ambipolar.cpp)
 uns_target_defaults(mercury_core)
 target_include_directories(mercury_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(mercury_core PUBLIC uns_comm uns_io uns_geometry uns_complex uns_core)
+target_link_libraries(mercury_core PUBLIC mhd_common)
 
 add_executable(MercuryUns main.cpp)
 uns_target_defaults(MercuryUns)

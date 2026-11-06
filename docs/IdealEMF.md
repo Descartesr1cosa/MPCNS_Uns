@@ -1,6 +1,6 @@
 # Ideal EMF on edges of arbitrary valence
 
-Code: `MercuryUns/induction/IdealEMF.{h,cpp}`, weights `Geometry::ef_weight`, test `tests/test_ideal_emf.cpp`.
+Code: `Common/induction/IdealEMF.{h,cpp}`, weights `Geometry::ef_weight`, test `tests/test_ideal_emf.cpp`.
 
 ## Scheme
 Cartesian form of the legacy Mercury scheme (`MercurySolver_MagExplicit_Ideal.cpp`, Gardiner–Stone type UCT).

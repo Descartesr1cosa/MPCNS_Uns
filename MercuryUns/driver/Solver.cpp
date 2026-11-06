@@ -11,6 +11,7 @@
 #include "diagnostics/DivB.h"
 #include "induction/Current.h"
 #include "induction/Faraday.h"
+#include "physics/Exosphere.h"
 #include "physics/Gyration.h"
 #include "initial/Initial.h"
 #include "io/GlobalFields.h"
@@ -20,6 +21,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 namespace
@@ -745,6 +747,7 @@ void Solver::write_global_fields(const std::string &path)
 // ------------------------------------------------------------------------------------------ load-balance profile
 namespace mercury
 {
+using namespace mhd;
 void Solver::write_load_profile(const std::string &base)
 {
     const Profile p = profile();

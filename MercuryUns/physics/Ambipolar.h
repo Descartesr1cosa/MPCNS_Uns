@@ -6,12 +6,13 @@
 // grad n_e x grad p_e does not vanish (Biermann term) and goes through the same edge assembly as every other EMF.
 #include <vector>
 
-#include "Config.h"
+#include "config/Config.h"
 #include "uns/geometry/Geometry.h"
 #include "uns/parallel/LocalMesh.h"
 
 namespace mercury
 {
+using namespace mhd;
 // grad p_e of the owned fluid cells (3 per cell, zero elsewhere) by Gauss' theorem with face-averaged pressure.
 void electron_pressure_gradient(const uns::LocalMesh &lm, const uns::Geometry &geo, const double *WH, const double *WNa, double *dpe);
 

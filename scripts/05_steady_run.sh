@@ -19,7 +19,7 @@ if [ "$MODE" = accurate ]; then DEF_R=4; DEF_L=1; else DEF_R=32; DEF_L=4; fi
 OPTS="steady=1 second_order=0 lts_b_ratio=${B_RATIO:-$DEF_R} mg_levels=${MG_LEVELS:-$DEF_L} mg_cycle_every=${MG_EVERY:-4} mg_start=${MG_START:-200} mg_relax=${MG_RELAX:-1} steady_tol=${STEADY_TOL:-1e-7} max_Nstep=$MAXSTEP log_every=${LOG_EVERY:-100} write_vtk=0"
 if [ "$STAGE" = coarse ]; then
   D=$CASE_DIR/coarse_steady; mkdir -p "$D"; cd "$D"
-  $PRE $IN/Preprocess/INPUT/setup.txt $IN/Preprocess/INPUT/mercury_mesh.txt output_dir=$D/geometry proc_num=$NP cs_r_stretch=1.07 write_vtk=0
+  $PRE $IN/Preprocess/INPUT/setup.txt $IN/MercuryUns/INPUT/mercury_mesh.txt output_dir=$D/geometry proc_num=$NP cs_r_stretch=1.07 write_vtk=0
   $MPIRUN $NP $SOL $IN/MercuryUns/INPUT/setup.txt $IN/MercuryUns/INPUT/mercury.txt geometry_dir=$D/geometry output_dir=$D/DATA $OPTS | tee $D/run.log
 else
   D=$CASE_DIR/fine; cd "$D"; mkdir -p steady

@@ -5,6 +5,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 ResistiveSolver::ResistiveSolver(const LocalMesh &lm, const Geometry &geo, comm::Exchanger &ex, const Config &cfg)

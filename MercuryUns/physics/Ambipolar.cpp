@@ -4,6 +4,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 void electron_pressure_gradient(const LocalMesh &lm, const Geometry &geo, const double *WH, const double *WNa, double *dpe)

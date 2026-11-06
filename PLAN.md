@@ -3,6 +3,7 @@
 最后更新：2026-11-05（M3、M5a、M4 简单版求解器完成，粗解→加密→续算全流程打通；水星算例的物理补全已写入但全模型运行在 t≈0.2–0.5 失稳，见 `docs/MercuryRun.md`，**暂存于此**）。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
 
 > 多重网格 / 局部伪时间步（稳态模式）的数学、实验与开发记录见 [docs/Multigrid.md](docs/Multigrid.md)。
+> 火星十离子分支（`MarsUns/`，含源项点隐式处理）见 [MarsUns/docs/Mars.md](MarsUns/docs/Mars.md)；代码按 `Common/`（模型无关）/ `MercuryUns/` / `MarsUns/` 划分，见 [README.md](README.md)。
 > 数值方法的数学表达与参考文献见 [docs/Methods.md](docs/Methods.md)；水星算例的进度与对比见 [docs/MercuryRun.md](docs/MercuryRun.md)。
 
 ## 1. 目标
@@ -42,7 +43,9 @@ MPCNS_Uns/
 │   ├─ io/          BinContainer(UNSBIN)、MeshIO、VtkWriter
 │   └─ comm/        Exchanger（MPI：前向拷贝、边归约、边装配）
 ├─ Preprocess/                mpcns_pre：generate / inspect / export / refine / demo_fields
-├─ MercuryUns/                求解器：physics/ fluid/ induction/ boundary/ initial/ driver/ io/ diagnostics/ hall/(空)
+├─ Common/                    与模型无关的 MHD 部件（namespace mhd）：config physics state boundary fluid induction diagnostics io app
+├─ MercuryUns/                水星专有：driver/ multigrid/ initial/ physics/(外逸层、回旋、双极) fluid/(Na+ 源项) induction/(内部电阻) INPUT/
+├─ MarsUns/                   火星专有：driver/ physics/ INPUT/ docs/ scripts/ tools/ tests/
 ├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh
 ├─ docs/                      Conventions.md  FileFormats.md  HallTodo.md
 ├─ Run/                       算例（数据不入库）

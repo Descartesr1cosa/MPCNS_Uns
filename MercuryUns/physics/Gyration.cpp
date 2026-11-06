@@ -6,6 +6,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 void gyrate(const LocalMesh &lm, const Config &cfg, const double *B, double dt, double *UH, double *UNa, const double *dt_cell)

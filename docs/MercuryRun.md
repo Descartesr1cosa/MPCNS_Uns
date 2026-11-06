@@ -6,7 +6,7 @@ without the Hall contribution to the EMF, with the fluid/solid load imbalance ta
 ## Done
 | item | where |
 |---|---|
-| Mesh: cubed-sphere solid shell r0..r1 (0.8..1.0, uniform layers) + fluid out to the eccentric ellipsoid x[-12,4], y,z[-10,10] (rays from the origin, geometric radial growth) | `CubedSphereSpec::{r_surf,ellipsoid,ell_lo,ell_hi}`, `Preprocess/INPUT/mercury_mesh.txt` (use `cs_r_stretch=1.07`: 1.15 gives 0.016-thick first cells on the sunward side) |
+| Mesh: cubed-sphere solid shell r0..r1 (0.8..1.0, uniform layers) + fluid out to the eccentric ellipsoid x[-12,4], y,z[-10,10] (rays from the origin, geometric radial growth) | `CubedSphereSpec::{r_surf,ellipsoid,ell_lo,ell_hi}`, `MercuryUns/INPUT/mercury_mesh.txt` (use `cs_r_stretch=1.07`: 1.15 gives 0.016-thick first cells on the sunward side) |
 | Reference parameters in our format | `MercuryUns/INPUT/mercury.txt` (all values of `0_General_Setting … 3_MHD_Control`; Hall keys ignored) |
 | B_add = IMF + dipole (SI moment/centre/softening converted like the legacy `DipoleField`), B_induced starts at 0; far-field inflow edges carry E = -u_inf x B_imf | `initial/`, `Config` |
 | Na+ seed state (rho = 1e-6 rho_H, at rest, p = p_H 1e-6/23), exosphere (Exner et al. 2020), photo-ionisation rate, shadow, drag, thermal relaxation, thermal drift | `physics/Exosphere.*`, `fluid/FluidRHS.cpp::add_sources` |
@@ -185,7 +185,7 @@ Ideas, in order of cost:
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j8 && (cd build && ctest)
 W=/tmp/mercury_work; mkdir -p $W/run
-build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt Preprocess/INPUT/mercury_mesh.txt output_dir=$W/geometry proc_num=28 cs_r_stretch=1.07 write_vtk=0
+build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt MercuryUns/INPUT/mercury_mesh.txt output_dir=$W/geometry proc_num=28 cs_r_stretch=1.07 write_vtk=0
 cd $W/run && mpirun -np 28 .../build/MercuryUns/MercuryUns MercuryUns/INPUT/setup.txt MercuryUns/INPUT/mercury.txt \
      geometry_dir=$W/geometry output_dir=$W/run/DATA max_Time=0.6 log_every=10        # fails near t = 0.22 (baseline)
 # dumps around the failure:  output_step=1 output_start=55 max_Nstep=66 write_vtk=1  then

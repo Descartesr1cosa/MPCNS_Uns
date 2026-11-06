@@ -14,13 +14,14 @@
 
 #include <vector>
 
-#include "Config.h"
+#include "config/Config.h"
 #include "uns/comm/Exchanger.h"
 #include "uns/geometry/Geometry.h"
 #include "uns/parallel/LocalMesh.h"
 
 namespace mercury
 {
+using namespace mhd;
 class ResistiveSolver
 {
 public:

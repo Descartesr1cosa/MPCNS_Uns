@@ -8,6 +8,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 void set_initial_state(const LocalMesh &lm, const Geometry &geo, const Config &cfg, std::vector<double> &UH, std::vector<double> &UNa,

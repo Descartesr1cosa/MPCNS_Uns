@@ -7,12 +7,14 @@
 #include <numeric>
 #include <tuple>
 
-#include "fluid/FluidRHS.h"
+#include "fluid/FluxRHS.h"
+#include "fluid/MercurySources.h"
 #include "physics/Euler.h"
 #include "physics/Gyration.h"
 
 namespace mercury
 {
+using namespace mhd;
 using namespace uns;
 
 double positivity_safeguard(const double *U, const double *dU, double gamma, double keep, double grow)

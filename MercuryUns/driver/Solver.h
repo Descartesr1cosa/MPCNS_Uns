@@ -11,11 +11,12 @@
 #include <string>
 #include <vector>
 
-#include "Config.h"
+#include "config/Config.h"
 #include "boundary/BoundaryInfo.h"
-#include "fluid/FluidRHS.h"
+#include "fluid/FluxRHS.h"
+#include "fluid/MercurySources.h"
 #include "fluid/Reconstruction.h"
-#include "hall/HallEMF.h"
+#include "induction/HallEMF.h"
 #include "induction/EdgeEMF.h"
 #include "induction/IdealEMF.h"
 #include "induction/ImplicitInduction.h"
@@ -28,6 +29,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 struct State
 {
     std::vector<double> U[2]; // H+, Na+ conservative variables, 5 per local cell

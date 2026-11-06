@@ -16,7 +16,7 @@
 #include "uns/partition/Partitioner.h"
 
 using namespace uns;
-using namespace mercury;
+using namespace mhd;
 using cplx = std::complex<double>;
 
 namespace

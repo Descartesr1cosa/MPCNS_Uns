@@ -1,10 +1,10 @@
 # Hall term — IMPLEMENTED (first order, semi-implicit); this file keeps the original design notes
 
-Status 2026-11: the Hall EMF is implemented in `MercuryUns/induction/ImplicitInduction.*` (see "Semi-implicit induction" in `docs/MercuryRun.md`);
+Status 2026-11: the Hall EMF is implemented in `Common/induction/ImplicitInduction.*` (see "Semi-implicit induction" in `docs/MercuryRun.md`);
 the stub `hall/HallEMF.*` is obsolete. Still open from the list below: the explicit whistler diffusion (not needed with the implicit treatment),
 second-order time integration of the Hall term, sub-cycling (not needed).
 
-# Hall term — deliberately left empty for now (`MercuryUns/hall/`)
+# Hall term — deliberately left empty for now (`Common/induction/HallEMF.*`)
 
 `add_hall_emf()` is a no-op and `hall_time_step_limit()` returns +inf.  The induction path
 (`EdgeEMF` → `Exchanger::assemble_edges` → `faraday_update`) is complete and tested without it.

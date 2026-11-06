@@ -20,18 +20,23 @@ include(cmake/UnsWarnings.cmake)
 #   core -> complex -> geometry -> generate / partition / parallel / refine / io
 add_subdirectory(src/uns)
 
-# ---- applications ------------------------------------------------------------
+if(UNS_BUILD_TESTS)
+  enable_testing()
+endif()
+
+# ---- applications (Common = shared MHD blocks, MercuryUns = Mercury, MarsUns = Mars) ------------------------------------------------------------
 add_subdirectory(Preprocess)
 if(UNS_BUILD_MERCURY)
   find_package(MPI COMPONENTS CXX)
   if(MPI_CXX_FOUND)
+    add_subdirectory(Common)
     add_subdirectory(MercuryUns)
+    add_subdirectory(MarsUns)
   else()
-    message(STATUS "MPI not found: MercuryUns and uns_comm are skipped")
+    message(STATUS "MPI not found: MercuryUns, MarsUns and uns_comm are skipped")
   endif()
 endif()
 
 if(UNS_BUILD_TESTS)
-  enable_testing()
   add_subdirectory(tests)
 endif()

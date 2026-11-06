@@ -5,6 +5,7 @@
 
 namespace mercury
 {
+using namespace mhd;
 using uns::Vec3;
 
 double neutral_sodium_cm3(const Vec3 &x, double Rm)
