@@ -1,0 +1,26 @@
+# vtu2tec: convert solver output (VTU pieces) to a Tecplot binary file (.plt).   run:  python3 tools/vtu2tec/vtu2tec.py [this-file]
+# Relative paths are relative to the directory of this yml file.
+
+input_dir: ../../Run/Mars/DATA      # the solver's output_dir (contains sol_<step>_rXXXXX.vtu and solution.pvd)
+output_dir: ../../Run/Mars/tecplot  # where the .plt files are written (created if missing)
+
+name: mars                          # output file name WITHOUT extension; leave empty for sol_<step>
+                                    #   one step -> mars.plt ;  step: all -> mars_<step>.plt for every step
+step: last                          # last | all | a step number (15659 or 0015659)
+
+vars:                               # cell variables to write; delete all entries (or comment out) for ALL variables.
+                                    # prefixes with * are allowed.  The ten-ion Mars output has ~65 variables
+  - rho_H
+  - rho_O2
+  - rho_O
+  - p_H
+  - u_H
+  - u_O2
+  - B_total
+  - B_induced
+  - J
+  - u_plus
+  - n_e
+  - material
+
+double: false                       # true: 64-bit values (default 32-bit)

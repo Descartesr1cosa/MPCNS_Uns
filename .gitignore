@@ -7,3 +7,4 @@
 *.bin
 *.cplx
 *.sol
+__pycache__/

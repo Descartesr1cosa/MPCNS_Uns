@@ -14,11 +14,19 @@ VTK XML unstructured grid, binary appended raw data, `header_type=UInt64`.  Ever
 need no special handling.  One `.vtu` per rank (owned cells only), `.pvtu` master, `.pvd` for time series.
 `tools/check_vtu.py` recomputes polyhedron volumes from the file and compares with the written `volume` array.
 
-### Tecplot
-Not verified here.  Tecplot's native `.szplt` needs the TecIO library (not installed); loading polyhedral
-VTU in Tecplot 360 depends on its version.  Plan (M8): add a Tecplot-friendly writer after testing against
-a real Tecplot installation — candidates: `.szplt` via TecIO (supports polyhedra), or EnSight Gold binary
-(nfaced), plus an option that decomposes polyhedra into tetrahedra for tools without polyhedron support.
+### Tecplot (binary .plt)
+Tecplot cannot import VTK polyhedral cells (VTK_POLYHEDRON, type 42; face-based connectivity), which is what the solvers write ("missing
+connectivity").  Use the converter `tools/vtu2tec/vtu2tec.py` (Tecplot binary only, format `#!TDV112`), controlled by a yml file instead of
+command-line options: edit `tools/vtu2tec/config.yml` (`input_dir`, `output_dir`, `name`, `step`, `vars`, `double`), then
+`python3 tools/vtu2tec/vtu2tec.py [other.yml]`.
+It merges the rank pieces of a step (duplicate interface nodes are merged by exact coordinates) and writes a zone `hex` (`FEBRICK`) with all
+hexahedral cells (every unrefined Mars / Mercury mesh -> a single zone) and, for refined meshes, a zone `poly` (`FETETRAHEDRON`) in which each
+hanging-node polyhedron is cut into tetrahedra about its centroid and face centres (cell data copied to the sub-tetrahedra).  Cell data stay
+cell-centred, vectors become `name_x/_y/_z`, values are 32-bit unless `double: true`, `SOLUTIONTIME` comes from `solution.pvd`; `step: all` writes
+one file per step (`NAME_<step>.plt`, `STRANDID` set so Tecplot animates them).
+Checked without Tecplot: the files parse with the independent pure-python package `tecio` (zones, variable locations, connectivity); all bricks
+have positive Jacobian, all tetrahedra positive volume, total volume of a refined test mesh within 0.04 % of the solver's volumes.  Loading in a
+real Tecplot installation has not been tried here.
 
 ## Coarse / restart solution (`*_fields.unsb`)
 UNSBIN written by `io::write_fields`, entity-numbered in the *global* numbering of the complex named by the
