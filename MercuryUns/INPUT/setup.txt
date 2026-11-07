@@ -20,7 +20,7 @@ double CFL            0.6
 bool   second_order   1            // limited linear (MUSCL) reconstruction; 0 = first order
 bool   lorentz_force  1            // J x B and induce source terms
 double cuct           0.5          // strength of the UCT part of the ideal EMF
-//    Hall EMF: not implemented in this version (see docs/HallTodo.md)
+//    Hall EMF: semi-implicit, only with time_order=1 (is_Hall_Efield, see mercury.txt and docs/MercuryRun.md); time_order defaults to 2 here
 
 //--- reference scales and constants (legacy Mercury values)
 double gamma          1.6667

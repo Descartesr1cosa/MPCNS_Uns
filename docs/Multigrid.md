@@ -1,6 +1,6 @@
 # Multigrid / pseudo-time acceleration of MercuryUns (steady-state mode)
 
-Status (2026-11-05): implemented, tested (20 ctest tests), measured on the coarse (24192 cells) and a refined (125 k cells) Mercury mesh; every experiment is recorded, including the failed ones (section 9).
+Status (2026-11-05, re-checked 2026-11-07: the `multigrid` and `pseudo_time` tests are among the 23 ctest tests of the repository, all passing; Mars does not use this mode), measured on the coarse (24192 cells) and a refined (125 k cells) Mercury mesh; every experiment is recorded, including the failed ones (section 9).
 
 **Summary of what was found**
 * A steady-state mode (`steady=1`) with *local pseudo-time stepping* plus an agglomeration *FAS multigrid* correction of the fluid was added; the time-accurate solver is unchanged.
@@ -305,7 +305,7 @@ at the end of a multigrid run the hierarchy sizes are printed once (`multigrid: 
 11. **Refined mesh** test (7 ranks, 125 k cells): 6.3.  np independence: 6.1/5.
 12. **Accuracy check against the time-accurate steady state** (section 6.5): the global-step run, continued to t = 75, converges (res 1e-7) to mass_Na 3.6613; the LTS fixed points differ by 3 % (R = 4) to 15–70 % (R = 32); earlier statements that the global-step run "never converges" were wrong and are corrected; annealing R tested (6.6).  `tools/compare_states.py` added.
 13. **Implicit ideal induction prototype** (6.7): works mechanically, but GMRES cost grows with R and the frozen-u iteration does not converge; kept as an opt-in experimental switch.
-14. Files added/changed: `MercuryUns/multigrid/*`, `driver/Solver.*` (`step_pseudo`, `mg_correct_`, residuals), `fluid/FluidRHS.*` (`cell_time_steps`, `add_sources_n`), `physics/Gyration.*` (`gyrate_n`, per-cell steps), `induction/Faraday.*` (`faraday_update_edge_dt`),
+14. Files added/changed: `MercuryUns/multigrid/*`, `driver/Solver.*` (`step_pseudo`, `mg_correct_`, residuals), `MercuryUns/fluid/MercurySources.*` (`cell_time_steps`, `add_sources_n`; then still called `fluid/FluidRHS.*`), `physics/Gyration.*` (`gyrate_n`, per-cell steps), `induction/Faraday.*` (`faraday_update_edge_dt`),
     `induction/ImplicitInduction.*` (edge steps), `Config.*`, `tests/test_multigrid.cpp`, `tests/test_pseudo_time.cpp`, `tools/conv_report.py`, `scripts/05_steady_run.sh`, `PLAN.md` (M9).
 
 15. **Two attempts that were tried and reverted (not in the code).** (a) Anderson acceleration (depth 5–20, weighted inner product, on the whole state, B step R = 1): worse than the plain iteration (res_H 1e-3 instead of 3e-5 after 3000 iterations; the pseudo-step map is non-smooth because of floors, limiters and the varying step field).

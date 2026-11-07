@@ -62,7 +62,7 @@ $$\nabla W_c=\Big(\sum_k \omega_k d_kd_k^T\Big)^{-1}\sum_k\omega_k d_k(W_k-W_c),
 Barth–Jespersen limiter $\psi_c=\min_f\phi_f$ [R12] ($\phi_f$ from the neighbour min/max), face state $W_f=W_c+\psi_c\nabla W_c\cdot(x_f-x_c)$ with fall-back to $W_c$ if $\rho$ or $p$ would become negative. Boundary faces contribute a mirrored virtual neighbour so that boundary cells keep a full-rank stencil.
 Boundary states: wall — $H^+$ reflected ($u\to u-2(u\cdot n)n$), $Na^+$ absorbing (ghost $\rho=p=10^{-12}$); inflow — free stream; outflow — zero gradient.
 
-## 6. Two-ion model and source terms (`MercuryUns/physics`, `fluid/FluidRHS.cpp`)
+## 6. Two-ion model and source terms (`MercuryUns/physics`, `MercuryUns/fluid/MercurySources.cpp`, `Common/fluid/FluxRHS.cpp`)
 
 Number densities $n_s=\rho_sM_{ref}/M_s$, $n_e=n_H+n_{Na}$, $n_{e,\rm eff}=\sqrt{n_e^2+n_{\rm floor}^2}$, $\chi_s=n_s/n_e$, $w_s=n_s/n_{e,\rm eff}$, $u^+=\chi_Hu_H+\chi_{Na}u_{Na}$.
 Momentum sources (`inver_MA2`$=B_{ref}^2/(\mu_0\rho_{ref}U^2)$, `induce`$=qL B_{ref}n_{ref}/(\rho_{ref}U)$):

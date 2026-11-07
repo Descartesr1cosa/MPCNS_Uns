@@ -1,6 +1,10 @@
 # MercuryUns — two-ion MHD solver (simple second-order version)
 
-Code: `MercuryUns/` (driver `driver/Solver.cpp`).  Setup: `MercuryUns/INPUT/setup.txt`.  Tests: `tests/test_solver.cpp`, `tests/test_ideal_emf.cpp`.
+Code: `MercuryUns/` (driver `driver/Solver.cpp`) on top of the model-independent `Common/` (fluid flux/reconstruction, CT, ideal EMF, implicit induction, boundaries).  Setup: `MercuryUns/INPUT/setup.txt` (numerics, defaults) + `MercuryUns/INPUT/mercury.txt` (reference Mercury case).  Tests: `tests/test_solver.cpp`, `tests/test_ideal_emf.cpp`.
+
+> Status 2026-11-07: this file describes the numerical core and its verification (the first version, SSP-RK2 + ideal EMF, `time_order=2`).  The physics added later
+> (exosphere/photo-ionisation, drag, relaxation, ambipolar, interior resistivity, exact gyration splitting, **semi-implicit Hall + resistive induction = `time_order=1`**, now the
+> default of `mercury.txt`) is documented in `docs/MercuryRun.md` and `docs/Methods.md`; the steady mode in `docs/Multigrid.md`.  The "Hall hook only" statements below refer to the first version.
 
 ## Model (nondimensional, same scaling as the legacy MercurySolver)
 Species s = H+, Na+ with U_s = (rho, rho u, E), p = (gamma-1)(E - rho u²/2):
@@ -10,8 +14,7 @@ Species s = H+, Na+ with U_s = (rho, rho u, E), p = (gamma-1)(E - rho u²/2):
     n_s = rho_s M_ref / M_s ,  chi_s = n_s / n_e ,  w_s = n_s / n_e,eff ,  u+ = chi_H u_H + chi_Na u_Na
     dB/dt = - curl E ,   B = B_induced (evolved) + B_dipole (static)
 
-Not included yet: photo-ionisation, drag/charge exchange, ambipolar electric field, resistivity, **Hall EMF** (hook only), the
-thermal relaxation terms of the legacy source routine.
+Not in the model of this section (added later, see the note above): photo-ionisation, drag/charge exchange, thermal relaxation, ambipolar electric field, resistivity, Hall EMF.
 
 ## Numerics
 - **Fluid**: cell-centred finite volume on polyhedral cells; Rusanov flux; second order by linear reconstruction of the primitive variables
@@ -19,7 +22,7 @@ thermal relaxation terms of the legacy source routine.
   fluid/solid faces contribute a mirrored virtual neighbour so boundary cells keep a full-rank stencil.  `second_order=0` switches to first order.
 - **Magnetic field**: constrained transport only: `Phi -= dt d1(E)`; `E` = ideal EMF (`docs/IdealEMF.md`) assembled on the owned edges and copied to
   the alias edges.  The dipole is the exactly divergence-free flux `d1(A.dl)` of its vector potential.  `J = curl B_induced` per cell by Gauss' theorem.
-- **Time**: SSP-RK2 for U and Phi alike (`Phi^{n+1} = Phi^n - dt/2 d1(E^n + E^{(1)})`, so div B stays at round-off).  `dt = CFL * 2V / sum_f (|u.n| + c_fast) A`
+- **Time** (`time_order=2`; `time_order=1` is forward Euler for U with the semi-implicit induction, see `docs/MercuryRun.md`): SSP-RK2 for U and Phi alike (`Phi^{n+1} = Phi^n - dt/2 d1(E^n + E^{(1)})`, so div B stays at round-off).  `dt = CFL * 2V / sum_f (|u.n| + c_fast) A`
   per cell and species (density floored at `rho_floor_dt = 1e-2` in the wave speeds as in the legacy code), global minimum.
 - **Parallel**: each stage forwards U (cells), Phi (faces) and the limited gradients (cells) from the owners, then evaluates; the EMF of an owned edge
   uses only local data (vertex-neighbour ghost layer).  Results agree with the serial run to round-off (see tests).
@@ -30,7 +33,7 @@ thermal relaxation terms of the legacy source routine.
 | wall (planet surface, fluid/solid interface) | mirrored ghost (slip wall) | `E = 0` on the wall edges (flux through the wall frozen) |
 | inflow (`farfield` with u.n_out < 0) | free-stream ghost state | `E = -u_inf x B_imf . dl` on its edges (a uniform stream is preserved exactly) |
 | outflow (`farfield` with u.n_out >= 0) | zero-gradient ghost | free: one-sided face candidates, B evolves from the interior |
-Solid cells (`n_solid` layers) are frozen: no flow, B frozen (E = 0).  The resistive solid shell is not implemented yet.
+Solid cells (`n_solid` layers) are frozen: no flow, B frozen (E = 0).  The resistive solid shell is handled by the implicit induction (`Resistive` for `time_order=2`, `ImplicitInduction` for `time_order=1`).
 Defaults: tag `inner` = wall, `outer` = farfield; others `bc_default` (outflow).
 
 ## Output / restart
@@ -54,6 +57,6 @@ Pipeline (`tools/run_pipeline_demo.sh`): coarse run to t = 6 → refine from the
 - Physical fidelity is not validated against the legacy Mercury results (no Mercury benchmark was run); only the numerics above are verified.
 - The cell-centred B is reconstructed with an area-weighted least-squares fit each stage (not cached); no performance tuning was done.
 - Rusanov (first-order dissipation) with only the plasma velocity and fast speed in the EMF dissipation; no entropy fix.
-- Hall limits (h² time step, sub-cycling) belong to the Hall work (docs/HallTodo.md).
+- Hall: not part of the `time_order=2` core; the semi-implicit Hall (no h² limit) is in `Common/induction/ImplicitInduction.*`.
 
 Steady-state (pseudo-time) mode, local time stepping and the multigrid correction: see `docs/Multigrid.md` (`steady=1`, `mg_levels`, ...).

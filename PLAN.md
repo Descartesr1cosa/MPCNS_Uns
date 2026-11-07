@@ -1,6 +1,6 @@
 # MPCNS_Uns — 全非结构 Hall-MHD（水星磁层）方案与进度
 
-最后更新：2026-11-05（M3、M5a、M4 简单版求解器完成，粗解→加密→续算全流程打通；水星算例的物理补全已写入但全模型运行在 t≈0.2–0.5 失稳，见 `docs/MercuryRun.md`，**暂存于此**）。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
+最后更新：2026-11-07（与代码核对）。M0–M4、M5a、M6（Hall/电阻/双极，半隐式）、M9（稳态加速）、M10（火星十离子分支）已完成；水星算例**一阶**格式可跑到 t=25，**二阶**（`second_order=1`）全模型仍在 t≈0.15 失稳，见 `docs/MercuryRun.md` 的 Open problem。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
 
 > 多重网格 / 局部伪时间步（稳态模式）的数学、实验与开发记录见 [docs/Multigrid.md](docs/Multigrid.md)。
 > 火星十离子分支（`MarsUns/`，含源项点隐式处理）见 [MarsUns/docs/Mars.md](MarsUns/docs/Mars.md)；代码按 `Common/`（模型无关）/ `MercuryUns/` / `MarsUns/` 划分，见 [README.md](README.md)。
@@ -12,19 +12,19 @@
 2. 先在稀疏粗网格上算粗解。之后读取粗解，用密度、压强、`h|J|/|B|` 等指示器加最大层级，或手动指定区域，加密磁尾重联区等局部，得到**非共形**加密网格。悬挂点算作粗单元自己的顶点，粗单元变成多面体。加密后网格固定，计算中不做 AMR。
 3. Preprocess 重写为通用复形生成与分区工具：读入/生成网格、构建关联表、owner 与别名符号、按进程输出子网格与通信计划。MPI 负载均衡用带权单元图（顶点权 = 单元计算成本，区分流体+电磁与只算电磁的固体壳；边权 = 共享面通信量），并报告各进程负载比与通信量。
 4. 离散保持 DEC：磁场只通过 `B −= dt·d₁(E)` 更新，所有 EMF（理想、Hall、电阻、人工项）都只作为边上的 1-cochain 进入；`d₂d₁=0` 只由关联表保证，对任意单元类型、悬挂点和 MPI 界面成立。粗解转移到细网格时 B 的细化保持每个单元 `d₂B=0`。度量只出现在 Hodge 星、面积矢量、体积和重构里，对偶量保证为正。
-5. Hall：沿用 `α(J×B)`，边上平均与 whistler 扩散改成按边的对偶面份额加权（任意价态），与理想 EMF 共用同一套边装配和同一个 owner；加入随 h² 收紧的 Hall 时间步限制，必要时子循环或半隐式。**Hall 首期留空并记录**（见 `docs/HallTodo.md`）。
+5. Hall：沿用 `α(J×B)`，边上平均按边的对偶面份额加权（任意价态），与理想 EMF 共用同一套边装配和同一个 owner。最初计划留空并用显式 whistler 扩散 + h² 步长限制；**实际实现为半隐式**（以边 EMF 为未知量的线性化 Hall + 电阻，GMRES，无条件稳定，不需要 h² 限制和子循环，见 `Common/induction/ImplicitInduction.*`、`docs/MercuryRun.md`「Semi-implicit induction」和 `docs/Methods.md` 第 9 节）。`docs/HallTodo.md` 只保留原设计笔记。
 
 ## 2. 已确定的决定
 
 | 事项 | 决定 |
 |---|---|
 | 仓库 | 单个新 git 仓库在 `MPCNS_Uns/` 根目录；旧代码原样放 `legacy/`（只读参考，不参与构建） |
-| 应用名 | 求解器 `MercuryUns`，预处理 `Preprocess`（可执行 `mpcns_pre`） |
+| 应用名 | 水星求解器 `MercuryUns`，火星求解器 `MarsUns`，预处理 `Preprocess`（可执行 `mpcns_pre`） |
 | 加密入口 | 两者都要：`mpcns_pre task=refine` 独立步骤，**以及**求解器初始化可调用的库接口 |
 | 加密依据 | 流动指示器（密度、压强、`h|J|/|B|`）与手动区域（box/sphere/shell/cylinder）可单独或组合使用 |
 | 输出文件 | 二进制。内部交换用自描述 UNSBIN；可视化用 VTK XML 二进制（VTU/PVTU/PVD，ParaView/VisIt）。Tecplot 见 `docs/FileFormats.md` |
 | 分区 | 内置 Hilbert/Morton/RCB + 贪心边界精修；METIS 作为可选项（本机没有可用的 METIS 头文件和库） |
-| 语言/依赖 | C++20，MPI（openmpi-5.0.11）；PETSc 3.26 仅在隐式电阻/Hall 半隐式阶段才接入 |
+| 语言/依赖 | C++20，MPI（openmpi-5.0.11）；**实际未使用 PETSc**（CMake 选项 `UNS_ENABLE_PETSC` 默认关，代码里没有用到）：隐式电阻/Hall 用自写的并行 GMRES / Jacobi-CG |
 
 ## 3. 目录结构
 
@@ -46,8 +46,9 @@ MPCNS_Uns/
 ├─ Common/                    与模型无关的 MHD 部件（namespace mhd）：config physics state boundary fluid induction diagnostics io app
 ├─ MercuryUns/                水星专有：driver/ multigrid/ initial/ physics/(外逸层、回旋、双极) fluid/(Na+ 源项) induction/(内部电阻) INPUT/
 ├─ MarsUns/                   火星专有：driver/ physics/ INPUT/ docs/ scripts/ tools/ tests/
-├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh
-├─ docs/                      Conventions.md  FileFormats.md  HallTodo.md
+├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh、conv_report.py、compare_states.py、legacy_compare/、vtu2tec/（Tecplot 转换）
+├─ docs/                      Conventions  FileFormats  HallTodo  IdealEMF  Methods  Multigrid  MercuryRun  Solver（MarsUns/docs/Mars.md 为火星分支）
+├─ scripts/                   水星流程脚本 01–05（README.md）
 ├─ Run/                       算例（数据不入库）
 └─ legacy/                    MPCNS_Mercury 与旧 Preprocess 的原样拷贝
 ```
@@ -79,11 +80,12 @@ MPCNS_Uns/
 | M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移、`task=refine` | ✅ | `test_refine_mesh`、`test_refine_spec`、`tools/run_refine_demo.sh`；求解器初始化调用库接口随 M4 接入 |
 | M5a | 理想 EMF 推广到任意价态边，并与旧公式对照 | ✅ | `docs/IdealEMF.md`、`test_ideal_emf`（np=1/4/7）；价态 3–8、悬挂点多面体、分区无关 |
 | M4 | 求解器：流体 FV、二阶重构、SSP-RK2、CT、边界、输出/重启 | ✅ | 简单版：`docs/Solver.md`、`test_solver`、`tools/run_pipeline_demo.sh`；未含电离/阻力/双极/电阻/Hall |
-| M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | 🟡 | 代码已写：电阻固体壳（隐式并行 CG）、电离/阻力/热松弛、双极项、偏心椭球网格、参考参数文件；**全模型失稳未解决**，t=25 未跑，流固负载标定任务未写（`docs/MercuryRun.md`） |
-| M6 | Hall、人工项、电阻、Hall 时间步 | ⬜ | Hall 按用户要求首期留空 |
-| M7 | Hall 子循环（A），必要时半隐式（B） | ⬜ | |
+| M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | 🟡 | 代码已写并并入 `MercuryUns`：电阻固体壳、电离/阻力/热松弛、双极项、回旋精确分裂、偏心椭球网格、参考参数文件、负载剖面（`load_profile.*` + `mpcns_pre cost_profile=`）。**一阶**（`second_order=0`）粗网格跑到 t=25（12190 步，2 min 23 s，28 rank）并与旧程序对照，加密网格（12.5 万 / 57 万单元）续算稳定；**二阶全模型在 t≈0.15 失稳未解决**，Open problem 见 `docs/MercuryRun.md`；二阶下的 t=25 生产运行与对比未做 |
+| M6 | Hall、电阻、双极 EMF（Hall 时间步） | ✅ | 实现为半隐式：`time_order=1`（前向 Euler 流体 + E 为未知量的 GMRES，线性化 Hall + 隐式电阻 + 双极），divB 对线性求解容差不敏感；测试 `test_implicit_induction`（np=1/4），whistler 波包对解析解；人工项（artificial resistivity）参考算例为 0，未实现；时间二阶（SSP-RK2 + 分裂电阻）仍保留为 `time_order=2` |
+| M7 | Hall 子循环（A），必要时半隐式（B） | ✅（B） | 采用 B（半隐式），子循环不需要；`Common/induction/HallEMF.*` 里的 `add_hall_emf` 仍是空桩，只被 `task=selftest` 调用，求解器不用 |
 | M9 | 稳态加速：局部伪时间步 + 代数聚合 FAS 多重网格（流体部分，B 在粗层冻结） | 🟡 | 代码、单元测试、粗/细网格对比已做；数学与全部实验记录见 `docs/Multigrid.md`；脚本 `scripts/05_steady_run.sh`；快速模式（R=32+4 层 MG）约少 21 倍迭代但稳态误差 15–70 %，R=4 约少 8 倍迭代、误差几 %；B 的收敛是剩余瓶颈，下一步见 `docs/Multigrid.md` 第 8 节 |
-| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | 🟡 | 全流程已在合成算例上打通（`tools/run_pipeline_demo.sh`）；Tecplot 输出、性能与真实算例未做 |
+| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ✅ | 全流程在合成算例（`tools/run_pipeline_demo.sh`）和真实水星算例（`scripts/01–04`，粗 24192 → 细 12.5 万 / 57.5 万单元）上打通；性能测量见 `docs/MercuryRun.md`；Tecplot 经 `tools/vtu2tec`（本机无 Tecplot，用独立 `tecio` 读器验证） |
+| M10 | 火星十离子分支 `MarsUns`，代码拆为 `Common/` + `MercuryUns/` + `MarsUns/` | ✅ | 十离子、光化学、大气/壳场偶极子、点隐式源项（回旋/拖曳/热松弛）、半隐式 Hall 复用 `ImplicitInduction`；`test_mars_np1/np4`；记录见 `MarsUns/docs/Mars.md`；未做与结构网格 MarsZ5 的逐点对比 |
 
 ### M3 的实现要点与限制
 - 每个粗六面体内是八叉树；叶子按「手动区域（叶子的角点或中心落入区域）」与「粗单元级的指示器最小层级」决定是否细分。粗单元必须是拓扑六面体（否则报错）。
@@ -111,19 +113,19 @@ MPCNS_Uns/
 
 ### 尚未验证 / 已知缺口
 - VTU 在 ParaView 里的实际打开**没有测过**（本机无 ParaView/VTK）；Tecplot 同样没有测过。
-- Hall 还没写（空钩子）；电离、阻力、双极电场、电阻固体壳也没写。`task=selftest` 仍用合成 EMF，真实 EMF 已在 `task=run` 中使用。
-- 求解器只验证了数值性质（二阶、激波、Alfvén 波、分区无关、∇·B），**没有**与旧 Mercury 的物理结果对照。
+- Hall、电离、阻力、双极电场、电阻固体壳均已实现（`task=run`）；`task=selftest` 仍用合成 EMF。Hall 只做了一阶时间精度的线性化半隐式，无时间二阶。
+- 一阶全模型已与旧 Mercury 的 t≈24.5 重启场做了粗略对照（`docs/MercuryRun.md`，磁层顶位置/尾区密度/Na+ 量级定性吻合，近星 Na+ 偏低 4–8 倍）；二阶全模型因失稳**尚无**物理结果。
 - 理想 EMF 的限制见 `docs/IdealEMF.md`：弯曲面一阶一致、域边界边上的迎风项不严格为零、极不规则边上权重 ω 可能变小/变负（无限幅器）。
 - 指示器（密度/压强梯度、`h|J|/|B|`）只用合成的粗解测过管线，没有用真实的粗解校准阈值。
 - 求解器初始化时直接调用加密库（而不是独立的 `task=refine` 步骤）还没接入；目前是 `mpcns_pre task=refine` + 求解器 `init_fields=` 两步，库接口 `build_refined_mesh / transfer_B / prolong_cells` 可直接被求解器调用。
-- 未做性能测量。
+- 性能：水星加密网格每步 14.5 ms（56 rank，一阶）等，见 `docs/MercuryRun.md`；二阶、Mars 未测。
 
 ## 6. 构建与运行
 
 ```sh
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j
-cd build && ctest                       # 14 个测试
+cd build && ctest                       # 23 个测试（水星/库 21，火星 2；np=1…7，最多 7 进程）
 ./build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt output_dir=Run/demo/geometry proc_num=8
 tools/run_selftest.sh build /tmp/uns_selftest      # 生成 + 多进程 CT 自检
 tools/run_refine_demo.sh build /tmp/uns_demo       # 粗网格 → 合成粗解 → 加密 → 分区 → 细网格 CT 自检

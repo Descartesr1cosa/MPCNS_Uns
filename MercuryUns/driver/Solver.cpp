@@ -148,7 +148,7 @@ void Solver::rhs(State &s, Rhs &r, bool with_emf)
         add_sources(lm_, cfg_, k, W_[0].data(), W_[1].data(), uplus_.data(), Btot_.data(), J_.data(), sf, dt_cur_, r.dU[k].data(), cfg_.steady ? dtc_.data() : nullptr);
 
     if (!with_emf) return;
-    // EMF of the owned edges: ideal part now, the Hall term plugs in here later (hall/HallEMF.h)
+    // EMF of the owned edges: ideal + ambipolar part; Hall and resistivity enter through ImplicitInduction (time_order=1) in step_first_order
     emf_.begin(r.E.data());
     IdealInputs in;
     in.u_cell = uplus_.data();

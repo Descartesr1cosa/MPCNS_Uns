@@ -1,7 +1,6 @@
 #pragma once
-// Hall electric field  E_hall = alpha (J x B)  on edges.   *** NOT IMPLEMENTED YET ***
-//
-// This is a deliberately empty hook (see docs/HallTodo.md for the agreed design):
+// OBSOLETE no-op hook (only task=selftest calls it).  The Hall electric field E_hall = alpha (J x B) on edges is implemented in
+// ImplicitInduction.* (semi-implicit, linearised, E as the unknown).  Original design notes (docs/HallTodo.md):
 //  - cell values  alpha_c J_c x B_c  are averaged onto each edge with the dual-face
 //    shares w_{e,c} of uns::Geometry (valence independent) and enter EdgeEMF like the
 //    ideal EMF, so they share the edge assembly and the owner;

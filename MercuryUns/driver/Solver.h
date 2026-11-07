@@ -4,7 +4,8 @@
 //
 // One stage:  forward halo (U cells, B faces) -> derived fields (primitives, cell B, u+, J) -> limited gradients
 //             (forwarded) -> fluid fluxes + sources -> ideal EMF on owned edges -> EdgeEMF::finish (copy to aliases).
-// The Hall term is not part of this version (hall/HallEMF.h is a no-op hook).
+// time_order=1 (default of mercury.txt): forward Euler fluid + semi-implicit induction (Hall, resistivity, ambipolar; E is the unknown, ImplicitInduction).
+// time_order=2: SSP-RK2 with the explicit ideal EMF and a split resistive step.  Common/induction/HallEMF.h is an obsolete no-op hook (selftest only).
 #include <mpi.h>
 
 #include <memory>
@@ -62,7 +63,7 @@ public:
     void run();                     // time loop until t_end or max_steps, with logging and output
     double step(double dt_max);     // dispatches on Config::steady / Config::time_order
     double step_pseudo();           // local pseudo-time step (steady mode): cell steps dtc, edge steps dte = min over the cells at the edge
-    double step_first_order(double dt_max);  // forward Euler fluid + semi-implicit induction (Hall, resistivity) with E as the unknown     // one SSP-RK2 step with the CFL step (<= dt_max); returns the dt used
+    double step_first_order(double dt_max);  // time_order=1: forward Euler fluid + semi-implicit induction (Hall, resistivity) with E as the unknown; returns the dt used
     // ---- B-only iteration with frozen fluid (prototype of the B multigrid, docs/Multigrid.md section 11).  Uniform step dt for every edge,
     //      so the fixed point is exactly d1 E = 0.  Serial use (one rank) in the prototype.
     double b_dt();                                                       // CFL step of the (frozen) fluid state, global minimum

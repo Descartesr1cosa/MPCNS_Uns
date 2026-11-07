@@ -2,7 +2,7 @@
 // Mercury magnetosphere: parameters of the reference case Run/CASE/setup (0_General_Setting ... 3_MHD_Control),
 // written in the "type name value" format.   usage:
 //   mpirun -np N MercuryUns setup.txt mercury.txt geometry_dir=... output_dir=... [name=value ...]
-// Not yet used from the reference: Hall EMF / Hall sub-cycling (hall_subcycle_*), artificial resistivity (0 in the reference),
+// Hall EMF: used through the semi-implicit induction (is_Hall_Efield, time_order=1).  Not used from the reference: Hall sub-cycling (hall_subcycle_*), artificial resistivity (0 in the reference),
 // the Pole/Outflow/Absorbing priority list (handled through face tags, see docs/Solver.md).
 //=============================================================================
 string task               run

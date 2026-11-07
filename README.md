@@ -25,4 +25,7 @@ scripts/        Mercury workflow (01-05);                 MarsUns/scripts/run.sh
 ```
 Executables: `build/Preprocess/mpcns_pre`, `build/MercuryUns/MercuryUns`, `build/MarsUns/MarsUns`.
 
+Docs: [PLAN.md](PLAN.md) (plan + milestone status), docs/MercuryRun.md (Mercury state, open problems, read first when resuming), docs/Methods.md (math), docs/Multigrid.md, docs/Solver.md, MarsUns/docs/Mars.md.
+Tests: `cd build && ctest` (23 tests).
+
 Output: ParaView reads the VTU/PVD files directly; for Tecplot convert with `tools/vtu2tec/vtu2tec.py` driven by `tools/vtu2tec/config.yml` (binary .plt, see docs/FileFormats.md).

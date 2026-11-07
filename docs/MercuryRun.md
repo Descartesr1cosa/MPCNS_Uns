@@ -1,4 +1,11 @@
-# Mercury run: state of the work (saved mid-way — read this first when resuming)
+# Mercury run: state of the work (read this first when resuming)
+
+Last checked against the code: 2026-11-07 (all 23 ctest tests pass). Sources moved after the split into `Common/` (model independent, namespace `mhd`) and
+`MercuryUns/`: fluid fluxes/reconstruction/ghost states are in `Common/fluid/{FluxRHS,Reconstruction}.cpp`, the Mercury sources and time step in
+`MercuryUns/fluid/MercurySources.cpp`, the Mercury-only induction pieces (`Resistive`) in `MercuryUns/induction/`, the generic implicit induction in
+`Common/induction/ImplicitInduction.*`. Older rows below that name `fluid/FluidRHS.cpp` mean these files.
+**Current default: `time_order=1` (forward Euler + semi-implicit induction); the first-order spatial scheme (`second_order=0`) is the only one that reaches t = 25; with the second-order
+reconstruction (`second_order=1`, the default of `setup.txt`) the full model still fails at t ≈ 0.15 (see "Open problem").**
 
 Goal: the reference case `Run/CASE/setup` on a coarse mesh, to nondimensional time 25, on 28–56 ranks (limit: 84 processes),
 without the Hall contribution to the EMF, with the fluid/solid load imbalance taken into account.
@@ -7,19 +14,20 @@ without the Hall contribution to the EMF, with the fluid/solid load imbalance ta
 | item | where |
 |---|---|
 | Mesh: cubed-sphere solid shell r0..r1 (0.8..1.0, uniform layers) + fluid out to the eccentric ellipsoid x[-12,4], y,z[-10,10] (rays from the origin, geometric radial growth) | `CubedSphereSpec::{r_surf,ellipsoid,ell_lo,ell_hi}`, `MercuryUns/INPUT/mercury_mesh.txt` (use `cs_r_stretch=1.07`: 1.15 gives 0.016-thick first cells on the sunward side) |
-| Reference parameters in our format | `MercuryUns/INPUT/mercury.txt` (all values of `0_General_Setting … 3_MHD_Control`; Hall keys ignored) |
+| Reference parameters in our format | `MercuryUns/INPUT/mercury.txt` (all values of `0_General_Setting … 3_MHD_Control`; the Hall switch/taper are used by the semi-implicit induction below, Hall sub-cycling keys are ignored) |
 | B_add = IMF + dipole (SI moment/centre/softening converted like the legacy `DipoleField`), B_induced starts at 0; far-field inflow edges carry E = -u_inf x B_imf | `initial/`, `Config` |
-| Na+ seed state (rho = 1e-6 rho_H, at rest, p = p_H 1e-6/23), exosphere (Exner et al. 2020), photo-ionisation rate, shadow, drag, thermal relaxation, thermal drift | `physics/Exosphere.*`, `fluid/FluidRHS.cpp::add_sources` |
+| Na+ seed state (rho = 1e-6 rho_H, at rest, p = p_H 1e-6/23), exosphere (Exner et al. 2020), photo-ionisation rate, shadow, drag, thermal relaxation, thermal drift | `MercuryUns/physics/Exosphere.*`, `MercuryUns/fluid/MercurySources.cpp::add_sources` |
 | Ambipolar force on the ions (-w_s grad p_e) and ambipolar edge EMF (-pressure_coef grad p_e / n_e,eff, nodal pressure, d0 of a potential) | `physics/Ambipolar.*` |
 | Mercury interior resistivity: implicit backward-Euler CT substep, `(star1/eta + dt D^T S2 D) E = D^T S2 Phi`, own parallel Jacobi-CG on the edge unknowns (no PETSc), window 0.84/1.04/0.02, eta_nd = eta_max/(mu0 U L) | `induction/Resistive.*` |
-| Walls: H+ slip wall, Na+ absorbing (floor-state ghost); fluid/solid interface = wall, E = 0 on wall edges (the resistive substep then supplies E = eta J there); solid cells frozen, edges of solid-only cells skipped | `fluid/Reconstruction.cpp::ghost_state`, `boundary/` |
-| Time step: legacy definition `CFL V / sum(|u.n| + c_fast) A`, magnetic wave speed from the **total** density (floor 1e-2), per-species sound speed | `fluid/FluidRHS.cpp::local_time_step` |
+| Walls: H+ slip wall, Na+ absorbing (floor-state ghost); fluid/solid interface = wall, E = 0 on wall edges (the resistive substep then supplies E = eta J there); solid cells frozen, edges of solid-only cells skipped | `Common/fluid/Reconstruction.cpp::ghost_state`, `Common/boundary/` |
+| Time step: legacy definition `CFL V / sum(|u.n| + c_fast) A`, magnetic wave speed from the **total** density (floor 1e-2), per-species sound speed | `MercuryUns/fluid/MercurySources.cpp::local_time_step` |
 | Energy source with the mid-point velocity (`+ dt |S|^2 / 2 rho`) so the Lorentz force does not drain the thermal energy in low-beta cells | `add_sources` |
 | Exact integration of the induce (ion gyration / pick-up) term by Strang splitting; conserves momentum and total kinetic energy | `physics/Gyration.*` |
 | Timing bookkeeping for the load-balance calibration: `Solver::profile()` (wall, communication, owned fluid/solid cells, resistive edges, CG iterations), `Exchanger::comm_seconds()` | `driver/Solver.*` |
 | `div B` is measured against the total flux (induced + background) | `diagnostics/DivB.*` |
 
-All 14 unit/regression tests pass (`ctest`), including the earlier solver tests (the IMF now lives in the background field).
+All 23 ctest tests of the repository pass (21 library/Mercury, 2 Mars), including the earlier solver tests (the IMF now lives in the background field).
+There are still no dedicated unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere` (they are only exercised by `test_solver`/`test_implicit_induction` and the full runs).
 
 ## Result with the first-order scheme (second_order=0)
 Mesh `mercury_mesh.txt` (24192 cells, `cs_r_stretch=1.07`), 28 ranks, parameters of `mercury.txt`, `second_order=0`:
@@ -144,19 +152,24 @@ mesh), B transfer div B 1.1e-11, partition imbalance 1.02 (cost profile of the c
 (still decreasing slowly as the near-planet cells fill up), 9 GMRES it/step, 87 ms/step, compute imbalance 1.12, wait 28 %. Estimated cost of 25 more time units:
 ~3e5 steps x 87 ms = 7 h. Scripts for the whole chain: `scripts/` (README there).
 
-## NOT done yet
-1. **The stability problem below** — no run has reached t = 25; the longest stable runs reach t ≈ 0.5–1.5 with features disabled.
-2. Load balance: the profile and `cost_profile=` are in place (see above); still to do: judge it on the refined mesh (more cells per rank), and
-   possibly restrict the CG collectives to the ranks that own resistive edges.
-3. The production run (28–56 ranks, t = 25), its output, a magnetopause stand-off check (expected ≈ 1.4–1.5 R_M subsolar).
-4. Unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere`; update of `docs/Solver.md` (it still describes the first version).
-5. Hall (EMF contribution) is intentionally not included.
+## NOT done yet (status 2026-11-07)
+1. **The second-order stability problem below.**  Only `second_order=0` reaches t = 25 (coarse mesh, and the refined meshes from the coarse state); every second-order run with
+   the full model fails (t ≈ 0.15–0.5).  The earlier statement "no run has reached t = 25" is obsolete: the first-order runs did.
+2. Load balance: judged on the refined mesh (section above): imbalance 1.02–1.2, waiting (latency) dominates; the restriction of the resistive-CG collectives
+   to the ranks that own resistive edges is only relevant for `time_order=2` and was not done.
+3. A second-order production run (t = 25) and its comparison with the legacy run; a magnetopause stand-off check (expected ≈ 1.4–1.5 R_M subsolar).
+4. Unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere`.  (`docs/Solver.md` was brought up to date on 2026-11-07.)
+5. Hall is **included** since the semi-implicit induction (section above); not done: Hall sub-cycling (not needed) and second-order time accuracy of the Hall/resistive terms.
 
 ## Open problem: instability of the full model at t ≈ 0.2–0.5 (mesh 24192 cells, 28 ranks)
 Symptom: dt collapses to ~1e-10 within ~5 steps; the first sign is an anomalous Na+ pressure (e.g. p_Na ≈ 2e2 at rho_Na ≈ 2e-2,
 T ≈ 1e4, one step before u_Na jumps) in first-fluid-layer cells (r ≈ 1.03–1.05), at several places near the cube-corner / panel-diagonal
 directions and in the polar caps (B up to 600, rho_H ≈ 5, rho_Na up to 30 from the photo-ionisation hot spots).
 
+Re-checked on 2026-11-07 with the current code (12 ranks, same 24192-cell mesh, `time_order=1` default of `mercury.txt`, `second_order=1`): dt collapses to 1e-25 at
+t = 0.1554 (step ~55), `min p_H` -> 1e-12, `mass_Na` 0.21 -> 4e2; `second_order=0` runs to t = 0.6 with `mass_Na` 0.18.  The experiments in the table below
+were done earlier, mostly with the SSP-RK2 path (`time_order=2`, explicit EMF); the failure time is the same order in both time integrators, so the cause is not the
+time integration of the induction.
 Experiments (`max_Time` 0.4–2, CFL = legacy definition, 28 ranks; "ok" = reached the end):
 | variation | result |
 |---|---|
@@ -185,9 +198,9 @@ Ideas, in order of cost:
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j8 && (cd build && ctest)
 W=/tmp/mercury_work; mkdir -p $W/run
-build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt MercuryUns/INPUT/mercury_mesh.txt output_dir=$W/geometry proc_num=28 cs_r_stretch=1.07 write_vtk=0
-cd $W/run && mpirun -np 28 .../build/MercuryUns/MercuryUns MercuryUns/INPUT/setup.txt MercuryUns/INPUT/mercury.txt \
-     geometry_dir=$W/geometry output_dir=$W/run/DATA max_Time=0.6 log_every=10        # fails near t = 0.22 (baseline)
+build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt MercuryUns/INPUT/mercury_mesh.txt output_dir=$W/geometry proc_num=12 cs_r_stretch=1.07 write_vtk=0
+R=$PWD; cd $W/run && mpirun -np 12 $R/build/MercuryUns/MercuryUns $R/MercuryUns/INPUT/setup.txt $R/MercuryUns/INPUT/mercury.txt \
+     geometry_dir=$W/geometry output_dir=$W/run/DATA max_Time=0.6 log_every=10        # second order: fails near t = 0.155 (3 s wall); add second_order=0 for the stable run
 # dumps around the failure:  output_step=1 output_start=55 max_Nstep=66 write_vtk=1  then
 tools/inspect_vtu_extremes.py 0000060 $W/run/DATA
 ```
