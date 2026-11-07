@@ -27,7 +27,12 @@ public:
     // limited gradients (5 primitives x 3) of the owned fluid cells; others are zero.  W: 5 per cell.
     void limited_gradients(const uns::LocalMesh &lm, const uns::Geometry &geo, const BoundaryInfo &bc, const double *W,
                            int species, const Prim &freestream, bool limit, double *grad, const GhostFn *ghost = nullptr) const;
+    // Positivity limiter (0 = off): after Barth-Jespersen the face values of rho and p may differ from the cell mean by at most
+    // theta * mean, psi <- min(psi, theta |q_c| / |g.dx_f|).  Barth-Jespersen only bounds by the NEIGHBOUR extremes, so a trace cell next to a dense one
+    // can be extrapolated tens of times above its own value and a forward-Euler step then makes rho or p negative (docs/MercuryRun.md, Diagnosis).
+    void set_rel_limit(double theta) { rel_limit_ = theta; }
 private:
+    double rel_limit_ = 0.0;
     std::vector<std::int64_t> ptr_;
     std::vector<uns::Id> nb_;          // neighbour cell, or -(face+1) for a virtual boundary neighbour
     std::vector<double> w_;

@@ -38,6 +38,7 @@ Solver::Solver(MPI_Comm comm, const LocalMesh &lm, const Config &cfg)
       bc_(BoundaryInfo::build(lm, geo_, cfg)), stencil_(lm, geo_, bc_), active_(active_faces(lm.mesh.cx))
 {
     MPI_Comm_rank(comm, &rank_);
+    stencil_.set_rel_limit(cfg.recon_rel_limit);
     fs_[0] = {cfg.fsH.rho, cfg.u_inf.x, cfg.u_inf.y, cfg.u_inf.z, cfg.fsH.p};
     fs_[1] = {cfg.fsNa.rho, cfg.u_Na().x, cfg.u_Na().y, cfg.u_Na().z, cfg.fsNa.p};
 }

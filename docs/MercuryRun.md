@@ -1,11 +1,11 @@
 # Mercury run: state of the work (read this first when resuming)
 
-Last checked against the code: 2026-11-07 (all 23 ctest tests pass). Sources moved after the split into `Common/` (model independent, namespace `mhd`) and
+Last checked against the code: 2026-11-07 (second-order failure diagnosed, see "Diagnosis") (all 23 ctest tests pass). Sources moved after the split into `Common/` (model independent, namespace `mhd`) and
 `MercuryUns/`: fluid fluxes/reconstruction/ghost states are in `Common/fluid/{FluxRHS,Reconstruction}.cpp`, the Mercury sources and time step in
 `MercuryUns/fluid/MercurySources.cpp`, the Mercury-only induction pieces (`Resistive`) in `MercuryUns/induction/`, the generic implicit induction in
 `Common/induction/ImplicitInduction.*`. Older rows below that name `fluid/FluidRHS.cpp` mean these files.
-**Current default: `time_order=1` (forward Euler + semi-implicit induction); the first-order spatial scheme (`second_order=0`) is the only one that reaches t = 25; with the second-order
-reconstruction (`second_order=1`, the default of `setup.txt`) the full model still fails at t ≈ 0.15 (see "Open problem").**
+**Current default: `time_order=1` (forward Euler + semi-implicit induction).  Both `second_order=0` and `second_order=1` with `recon_rel_limit=0.25` (set in `mercury.txt`) reach t = 25 on the coarse mesh;
+second order without the relative limiter fails at t ≈ 0.155 (see "Open problem" / "Diagnosis").**
 
 Goal: the reference case `Run/CASE/setup` on a coarse mesh, to nondimensional time 25, on 28–56 ranks (limit: 84 processes),
 without the Hall contribution to the EMF, with the fluid/solid load imbalance taken into account.
@@ -153,15 +153,14 @@ mesh), B transfer div B 1.1e-11, partition imbalance 1.02 (cost profile of the c
 ~3e5 steps x 87 ms = 7 h. Scripts for the whole chain: `scripts/` (README there).
 
 ## NOT done yet (status 2026-11-07)
-1. **The second-order stability problem below.**  Only `second_order=0` reaches t = 25 (coarse mesh, and the refined meshes from the coarse state); every second-order run with
-   the full model fails (t ≈ 0.15–0.5).  The earlier statement "no run has reached t = 25" is obsolete: the first-order runs did.
+1. The second-order stability problem is fixed on the coarse mesh by `recon_rel_limit` (below); still to do: second order on the refined meshes, comparison with the legacy field.  Older statements "no run has reached t = 25" are obsolete.
 2. Load balance: judged on the refined mesh (section above): imbalance 1.02–1.2, waiting (latency) dominates; the restriction of the resistive-CG collectives
    to the ranks that own resistive edges is only relevant for `time_order=2` and was not done.
 3. A second-order production run (t = 25) and its comparison with the legacy run; a magnetopause stand-off check (expected ≈ 1.4–1.5 R_M subsolar).
 4. Unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere`.  (`docs/Solver.md` was brought up to date on 2026-11-07.)
 5. Hall is **included** since the semi-implicit induction (section above); not done: Hall sub-cycling (not needed) and second-order time accuracy of the Hall/resistive terms.
 
-## Open problem: instability of the full model at t ≈ 0.2–0.5 (mesh 24192 cells, 28 ranks)
+## Open problem (SOLVED 2026-11-07 by `recon_rel_limit`, see "Diagnosis"): instability of the full second-order model at t ≈ 0.2–0.5 (mesh 24192 cells, 28 ranks)
 Symptom: dt collapses to ~1e-10 within ~5 steps; the first sign is an anomalous Na+ pressure (e.g. p_Na ≈ 2e2 at rho_Na ≈ 2e-2,
 T ≈ 1e4, one step before u_Na jumps) in first-fluid-layer cells (r ≈ 1.03–1.05), at several places near the cube-corner / panel-diagonal
 directions and in the polar caps (B up to 600, rho_H ≈ 5, rho_Na up to 30 from the photo-ionisation hot spots).
@@ -185,7 +184,41 @@ So the failure needs *all of*: Na+ production, the induce/Lorentz coupling and t
 restriction (no CFL helps) and not a parallel bug (np = 4 and 28 fail too, differently). np-independence of the new physics has not been
 re-tested over long runs.
 
-Ideas, in order of cost:
+### Diagnosis (2026-11-07, 12 ranks, each run takes ~3 s; temporary debug hooks, reverted)
+| experiment (`t_end` 0.6–3) | result |
+|---|---|
+| second order for H+ only (Na+ first order) | **stable** to t = 0.6 |
+| second order for Na+ only (H+ first order) | fails at t = 0.126 → the instability lives in the Na+ reconstruction |
+| count of floor events (`enforce_floors`) | Na+ **density becomes negative** already at step 5 (t = 0.019, e.g. rho = -1e-5 .. -1.7e-4 in first-layer cells, r ≈ 1.03) and the cell is reset to the floor state; 4762 events by t = 0.16; none with `second_order=0` |
+| Na+ mass | identical to first order until t ≈ 0.08, then 3x larger at t = 0.154 (0.21 vs 0.066): the floor reset replaces a negative mass by +1e-10 and the momentum/energy by the floor state, i.e. it is a spurious source/sink, not physics |
+| first anomaly in T_Na = p/rho | T_Na = 0.59 → 11 → 1.8e3 → 1e5 in 12 steps (t = 0.124 → 0.155) in dayside first-layer cells where H+ is compressed (rho_H ≈ 2) and B ≈ 150; correct value ≈ T_n0 = 6e-3 |
+| extra *relative* limiter on the reconstruction of rho and p, face value within `[(1-θ) q_c, (1+θ) q_c]` (Na+ only) | θ = 0.5 / 0.25: Na+ stable (no Na+ floor events), run to t = 1 with mass_Na 0.29; θ = 1: still fails |
+| the same for H+ and Na+ (θ = 0.5, 0.25) | stable to t = 3 (mass_Na 0.69 / 0.67, min rho_H 4e-3 / 8e-3); θ = 0.5 still has ~400 H+ *pressure* floor events (E ≈ ke to 4 digits, r ≈ 1.09), θ = 0.25 fewer |
+
+**Cause.** The Barth–Jespersen limiter in `Stencil::limited_gradients` bounds the reconstructed face value by the *neighbour* extremes, not by the cell value.
+Na+ is a trace species whose density jumps by 1e2–1e4 between neighbouring first-layer cells (seed 1e-6 against the photo-ionisation hot spots),
+so a trace cell can be extrapolated to a face value tens to thousands of times its own mean.  The forward-Euler update of that cell then removes
+`dt/V sum_f (rho_f u + s rho_f) A` with `rho_f >> rho_c`: the density (and the thermal energy, since `p = (gamma-1)(E - m²/2rho)` is a difference of two nearly equal numbers)
+goes negative, the floor reset injects mass and kills momentum, and the cell next to it sees a heated, over-dense neighbour (T_Na up by 1e4–1e8) → `dt` → 1e-25.
+Positivity of a MUSCL step needs `CFL * rho_f/rho_c <~ 1` (Zhang–Shu type condition); the CFL here is the *cell-wise* sum of wave speeds with `rho_f ≈ rho_c` assumed,
+so lowering CFL (0.12 failed too) cannot repair a ratio of 1e2–1e4; the first-order scheme has `rho_f = rho_c` and is positivity preserving under CFL ≤ 1.
+It needs all of Na+ production (creates the large contrasts), the induce/Lorentz coupling (moves Na+ and H+ states apart in the strongly magnetised layer) and the second-order
+reconstruction — exactly the table above.  Not a parallel bug (np = 4, 12, 28 all fail) and not caused by the time integrator of the induction.
+Secondary effect found on the way: low-beta H+ cells (B ≈ 150, p_H ≈ 1e-4 of the kinetic energy) lose their pressure to round-off in `E - ke`; first-order runs do not show it.
+
+**Fix implemented (2026-11-07): `recon_rel_limit` = θ** (`Stencil::set_rel_limit`, `Common/fluid/Reconstruction.cpp`; default 0 = off, so Mars is unchanged; `mercury.txt` sets 0.25).
+After Barth–Jespersen, `psi <- min(psi, θ |q_c| / |g.dx_f|)` for rho and p over all faces.  Result, coarse mesh (24192 cells), 12 ranks, `second_order=1`, `time_order=1`, θ = 0.25:
+**reaches t = 25 stably** (28247 steps, 3 min 56 s, divB 6e-14, min rho_H 4.7e-3, min p_H 1.3e-3, mass_H 3404, mass_Na 3.87; dt 6.9e-4 at t = 24.8).
+For comparison, first order: min rho_H 0.033, mass_Na 3.44; legacy (t = 24.5): min rho_H 0.0061, mass_Na 6.62 — the second-order cavity/minimum density is much closer to the legacy value.
+θ = 0.5 also ran to t = 3 (more H+ pressure floors); θ = 1 and off fail.  All 23 ctest pass.  Not yet done: field comparison with the legacy run for the second-order state,
+the H+ internal-energy/low-beta fix (item 3 below), a refined-mesh second-order run, a unit test of the limiter.
+**Original recommendation (item 1 is what was implemented):**
+1. Positivity-preserving limiter on the face values of rho and p: `psi_c <- min(psi_c, theta |q_c| / |g.dx_f|)` over the faces, theta ≈ 0.25–0.5 (the experiment above), or the exact Zhang–Shu bound from the CFL;
+2. keep p and T consistent (reconstruct T or limit rho, p with one common psi) and fall back to first order in a cell if the face states violate `rho_f > 0.2 rho_c` or `p_f > 0.2 p_c` after limiting;
+3. for the H+ low-beta cells: evolve the internal energy (or use the entropy/pressure fix of the Mars branch) instead of recovering `p` from `E - ke`.
+Then re-run the second-order case to t = 25 and compare with the first-order result and the legacy run.
+
+Ideas, in order of cost (earlier list; items 1 and 2 were superseded by the diagnosis above):
 - Na+ is a trace species with T and u set by sources: limit the reconstruction of the Na primitives (first order for rho_Na < small, or
   limit the temperature / use a pressure-positivity-preserving slope limiter), floor the Na temperature to ~T_n0.
 - Check the energy source terms of Na at tiny density: `a5 n_s b1` and `a6 q T_n0` use the *true* n_s, the Lorentz mid-point term divides by rho_Na.

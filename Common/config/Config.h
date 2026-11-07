@@ -23,6 +23,7 @@ struct Config
     // ---- numerics
     double cfl = 1.0;                // dt = cfl V / sum_f (|u.n| + c_fast) A  (legacy definition)
     bool second_order = true;       // limited linear reconstruction (MUSCL); false = first order
+    double recon_rel_limit = 0.0;   // theta of the relative (positivity) limiter on rho, p of the reconstruction, 0 = off (Stencil::set_rel_limit)
     double rho_floor = 1e-10, p_floor = 1e-12;
     double gyro_cfl = 0.0;          // optional dt <= gyro_cfl / Omega_max (not needed: the gyration is integrated exactly, physics/Gyration)
     double rho_floor_dt = 1e-2;     // density floor used in the wave speeds of the CFL estimate

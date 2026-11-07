@@ -24,6 +24,7 @@ Config Config::from_params(const uns::Params &p)
     c.chem.Tn0 = p.get_double("Tn0", c.chem.Tn0);
     c.ambipolar = p.get_bool("is_Ambipolar_Efield", false);
     c.resistive = p.get_bool("is_Mercury_resistance", false);
+    c.recon_rel_limit = p.get_double("recon_rel_limit", 0.0);
     c.time_order = p.get_int("time_order", 2);
     c.hall = p.get_bool("is_Hall_Efield", false);
     c.hall_r_min = p.get_double("r_min", c.hall_r_min);

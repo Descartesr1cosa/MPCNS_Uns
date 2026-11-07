@@ -127,6 +127,13 @@ void Stencil::limited_gradients(const LocalMesh &lm, const Geometry &geo, const 
                     if (dl > 1e-300) psi = std::min(psi, (hi[m] - wcv[m]) / dl);
                     else if (dl < -1e-300) psi = std::min(psi, (lo[m] - wcv[m]) / dl);
                 }
+            if (limit && rel_limit_ > 0 && (m == 0 || m == 4))
+                for (auto kf = cx.c2f.begin(c); kf < cx.c2f.end(c); ++kf)
+                {
+                    const Vec3 dx = geo.face_center[cx.c2f.idx[kf]] - geo.cell_center[c];
+                    const double dl = std::abs(g[0] * dx.x + g[1] * dx.y + g[2] * dx.z);
+                    if (dl > 1e-300) psi = std::min(psi, rel_limit_ * wcv[m] / dl);
+                }
             psi = std::max(0.0, std::min(1.0, psi));
             double *out = grad + 15 * static_cast<std::size_t>(c) + 3 * m;
             out[0] = psi * g[0]; out[1] = psi * g[1]; out[2] = psi * g[2];

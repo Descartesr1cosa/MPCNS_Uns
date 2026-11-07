@@ -64,6 +64,7 @@ double mercury_eta_width  0.02
 double resistive_rtol     5e-3         // time_order=2 only (own parallel CG; reference implicit_resistive_ksp_rtol)
 int    resistive_max_it   200
 double cuct               0.5
+double recon_rel_limit    0.25         // relative positivity limiter of the second-order reconstruction (rho, p within +-25 % of the cell mean at the faces); 0 = off. Needed: without it second order fails at t~0.15 (docs/MercuryRun.md)
 
 //--- boundaries: inner = solid shell inner surface (frozen), outer = far field (inflow / zero-gradient outflow by u.n)
 string bc_inner           wall

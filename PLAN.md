@@ -1,6 +1,6 @@
 # MPCNS_Uns — 全非结构 Hall-MHD（水星磁层）方案与进度
 
-最后更新：2026-11-07（与代码核对）。M0–M4、M5a、M6（Hall/电阻/双极，半隐式）、M9（稳态加速）、M10（火星十离子分支）已完成；水星算例**一阶**格式可跑到 t=25，**二阶**（`second_order=1`）全模型仍在 t≈0.15 失稳，见 `docs/MercuryRun.md` 的 Open problem。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
+最后更新：2026-11-07（与代码核对）。M0–M4、M5a、M6（Hall/电阻/双极，半隐式）、M9（稳态加速）、M10（火星十离子分支）已完成；水星算例一阶与二阶（加相对限制器 `recon_rel_limit`）格式均可在粗网格跑到 t=25，二阶失稳原因见 `docs/MercuryRun.md` 的 Diagnosis。本文件同时是**方案**和**进度记录**，每个里程碑完成后更新第 5 节。
 
 > 多重网格 / 局部伪时间步（稳态模式）的数学、实验与开发记录见 [docs/Multigrid.md](docs/Multigrid.md)。
 > 火星十离子分支（`MarsUns/`，含源项点隐式处理）见 [MarsUns/docs/Mars.md](MarsUns/docs/Mars.md)；代码按 `Common/`（模型无关）/ `MercuryUns/` / `MarsUns/` 划分，见 [README.md](README.md)。
@@ -80,7 +80,7 @@ MPCNS_Uns/
 | M3 | 加密：指示器、2:1 平衡、非共形复形构造、B/U 转移、`task=refine` | ✅ | `test_refine_mesh`、`test_refine_spec`、`tools/run_refine_demo.sh`；求解器初始化调用库接口随 M4 接入 |
 | M5a | 理想 EMF 推广到任意价态边，并与旧公式对照 | ✅ | `docs/IdealEMF.md`、`test_ideal_emf`（np=1/4/7）；价态 3–8、悬挂点多面体、分区无关 |
 | M4 | 求解器：流体 FV、二阶重构、SSP-RK2、CT、边界、输出/重启 | ✅ | 简单版：`docs/Solver.md`、`test_solver`、`tools/run_pipeline_demo.sh`；未含电离/阻力/双极/电阻/Hall |
-| M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | 🟡 | 代码已写并并入 `MercuryUns`：电阻固体壳、电离/阻力/热松弛、双极项、回旋精确分裂、偏心椭球网格、参考参数文件、负载剖面（`load_profile.*` + `mpcns_pre cost_profile=`）。**一阶**（`second_order=0`）粗网格跑到 t=25（12190 步，2 min 23 s，28 rank）并与旧程序对照，加密网格（12.5 万 / 57 万单元）续算稳定；**二阶全模型在 t≈0.15 失稳未解决**，Open problem 见 `docs/MercuryRun.md`；二阶下的 t=25 生产运行与对比未做 |
+| M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | 🟡 | 代码已写并并入 `MercuryUns`：电阻固体壳、电离/阻力/热松弛、双极项、回旋精确分裂、偏心椭球网格、参考参数文件、负载剖面（`load_profile.*` + `mpcns_pre cost_profile=`）。**一阶**（`second_order=0`）粗网格跑到 t=25（12190 步，2 min 23 s，28 rank）并与旧程序对照，加密网格（12.5 万 / 57 万单元）续算稳定；二阶全模型原先在 t≈0.15 失稳，原因是 Barth–Jespersen 外推使痕量 Na+ 密度变负，已用相对限制器 `recon_rel_limit=0.25` 解决，粗网格二阶跑到 t=25（见 `docs/MercuryRun.md` Diagnosis）；二阶加密网格运行与对比未做 |
 | M6 | Hall、电阻、双极 EMF（Hall 时间步） | ✅ | 实现为半隐式：`time_order=1`（前向 Euler 流体 + E 为未知量的 GMRES，线性化 Hall + 隐式电阻 + 双极），divB 对线性求解容差不敏感；测试 `test_implicit_induction`（np=1/4），whistler 波包对解析解；人工项（artificial resistivity）参考算例为 0，未实现；时间二阶（SSP-RK2 + 分裂电阻）仍保留为 `time_order=2` |
 | M7 | Hall 子循环（A），必要时半隐式（B） | ✅（B） | 采用 B（半隐式），子循环不需要；`Common/induction/HallEMF.*` 里的 `add_hall_emf` 仍是空桩，只被 `task=selftest` 调用，求解器不用 |
 | M9 | 稳态加速：局部伪时间步 + 代数聚合 FAS 多重网格（流体部分，B 在粗层冻结） | 🟡 | 代码、单元测试、粗/细网格对比已做；数学与全部实验记录见 `docs/Multigrid.md`；脚本 `scripts/05_steady_run.sh`；快速模式（R=32+4 层 MG）约少 21 倍迭代但稳态误差 15–70 %，R=4 约少 8 倍迭代、误差几 %；B 的收敛是剩余瓶颈，下一步见 `docs/Multigrid.md` 第 8 节 |

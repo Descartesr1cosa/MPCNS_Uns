@@ -117,6 +117,7 @@ MarsSolver::MarsSolver(MPI_Comm comm, const LocalMesh &lm, const MarsParams &prm
       atmosphere_(prm.atm)
 {
     MPI_Comm_rank(comm, &rank_);
+    stencil_.set_rel_limit(cfg_.recon_rel_limit);
     for (int s = 0; s < NS; ++s)
         fs_[s] = (s == MARS::H) ? Prim{prm_.sw_rho, prm_.sw_u.x, prm_.sw_u.y, prm_.sw_u.z, prm_.sw_p}
                                 : Prim{prm_.rho_floor, 0, 0, 0, std::max(prm_.p_floor, prm_.sw_p * 1e-6)};
