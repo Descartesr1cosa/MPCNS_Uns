@@ -1,6 +1,6 @@
 #include "driver/Solver.h"
 
-#include <sys/stat.h>
+#include <filesystem>
 
 #include <algorithm>
 #include <cmath>
@@ -28,8 +28,8 @@ namespace
 {
 void make_dir(const std::string &d)
 {
-    for (std::size_t i = 1; i <= d.size(); ++i)
-        if (i == d.size() || d[i] == '/') ::mkdir(d.substr(0, i).c_str(), 0755);
+    std::error_code ec; // mkdir -p, portable
+    std::filesystem::create_directories(d, ec);
 }
 } // namespace
 

@@ -27,3 +27,8 @@ add_library(mhd_common STATIC
 uns_target_defaults(mhd_common)
 target_include_directories(mhd_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mhd_common PUBLIC uns_comm uns_io uns_geometry uns_complex uns_core)
+
+# the MPI launcher this binary was built with: fallback of the self-launching ./MercuryUns / ./MarsUns when mpirun is not in PATH
+if(MPIEXEC_EXECUTABLE)
+  target_compile_definitions(mhd_common PRIVATE UNS_MPIEXEC="${MPIEXEC_EXECUTABLE}")
+endif()

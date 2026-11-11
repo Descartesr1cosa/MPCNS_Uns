@@ -1,0 +1,11 @@
+//=============================================================================
+// Mercury RUN CONTROL: how long to run and what to write.  Physics: physics.txt.  Numerics: numerics.txt.
+//=============================================================================
+double max_Time        25.0     // nondimensional end time (L_ref / U_ref = 6.05 s); a restart continues from the time stored in init_fields
+double max_Nstep       100000000
+int    log_every       2000     // steps between log lines
+int    output_step     0        // steps between ParaView dumps (0 = first and last only)
+int    restart_step    0        // steps between rewrites of DATA/fields_final.unsb (0 = only at the end)
+bool   write_vtk       1        // ParaView output
+bool   write_fields    1        // fields_final.unsb (restart / refinement input)
+bool   write_profile   1        // load_profile.txt (cost model for 03_MercuryRefine)

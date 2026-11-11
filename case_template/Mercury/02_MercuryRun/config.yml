@@ -1,0 +1,10 @@
+# Step 2 (Mercury): coarse run.   Run:  ./MercuryUns
+# config.yml = WHERE things are and HOW MANY ranks.  Everything numerical is in the txt files below (each key lives in exactly one).
+task: run
+geometry_dir: ../01_Meshgen/geometry   # mesh written by step 1
+output_dir: DATA                       # solution.pvd, fields_final.unsb, load_profile.txt
+init_fields: ""                        # empty = free stream;  or a fields_final.unsb of an earlier run on this mesh (restart)
+nproc: auto                            # auto = number of partitions of geometry_dir;  or an integer
+# mpi_launcher: mpirun                 # mpirun | mpiexec | srun ...   (ignored inside a batch allocation)
+# mpi_args: --oversubscribe            # extra launcher options, e.g. when ranks > cores
+settings: [physics.txt, numerics.txt, run.txt]   # later files win; no key appears twice

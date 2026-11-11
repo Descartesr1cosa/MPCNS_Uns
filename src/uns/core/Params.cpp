@@ -1,5 +1,7 @@
 #include "uns/core/Params.h"
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -38,6 +40,85 @@ void Params::load_file(const std::string &path)
         std::getline(ls, rest);
         kv_[b] = strip(rest);
     }
+}
+
+namespace
+{
+std::string unquote(std::string s)
+{
+    if (s.size() >= 2 && ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\''))) s = s.substr(1, s.size() - 2);
+    return s;
+}
+bool is_yaml(const std::string &a)
+{
+    const auto d = a.rfind('.');
+    if (d == std::string::npos) return false;
+    const std::string e = a.substr(d);
+    return e == ".yml" || e == ".yaml";
+}
+} // namespace
+
+void Params::load_yaml(const std::string &path)
+{
+    std::ifstream in(path);
+    if (!in) throw std::runtime_error("cannot open config file '" + path + "'");
+    std::vector<std::pair<std::string, std::string>> own;
+    std::vector<std::string> settings;
+    for (std::string line; std::getline(in, line);)
+    {
+        for (std::size_t i = 0; i < line.size(); ++i) // '#' starts a comment at line start or after a blank
+            if (line[i] == '#' && (i == 0 || line[i - 1] == ' ' || line[i - 1] == '\t')) { line.erase(i); break; }
+        line = strip(line);
+        if (line.empty() || line == "---") continue;
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) throw std::runtime_error("config '" + path + "': expected 'key: value', got '" + line + "'");
+        const std::string k = strip(line.substr(0, colon));
+        std::string v = strip(line.substr(colon + 1));
+        if (v.empty()) continue; // empty value = key not set
+        if (v.front() == '[' && v.back() == ']') v = v.substr(1, v.size() - 2);
+        if (k == "settings")
+        {
+            for (char &c : v) if (c == ',') c = ' ';
+            std::istringstream is(v);
+            for (std::string f; is >> f;) settings.push_back(unquote(f));
+        }
+        else own.emplace_back(k, unquote(v));
+    }
+    for (const auto &f : settings) load_file(f);
+    for (auto &[k, v] : own)
+    {
+        kv_[k] = v;
+        if (k == "nproc" && v != "auto") kv_["proc_num"] = v; // name used by mpcns_pre
+    }
+}
+
+bool Params::load_args(const std::vector<std::string> &argsIn, bool chdir_to_yml)
+{
+    std::vector<std::string> args = argsIn;
+    // no file argument (only name=value overrides, or nothing): ./config.yml is the default setup; "-" means "no file"
+    const bool has_file = std::any_of(args.begin(), args.end(), [](const std::string &a) { return a == "-" || a.find('=') == std::string::npos; });
+    if (!has_file && std::filesystem::exists("config.yml")) args.insert(args.begin(), "config.yml");
+    if (args.empty()) return false;
+    if (chdir_to_yml)
+        for (auto &a : args)
+            if (is_yaml(a))
+            {
+                const std::filesystem::path abs = std::filesystem::absolute(a);
+                if (!std::filesystem::exists(abs)) throw std::runtime_error("config file '" + a + "' not found");
+                std::error_code ec;
+                std::filesystem::current_path(abs.parent_path(), ec);
+                if (ec) throw std::runtime_error("cannot enter '" + abs.parent_path().string() + "': " + ec.message());
+                a = abs.filename().string();
+                break;
+            }
+    for (const auto &a : args)
+    {
+        if (a == "-") continue;
+        if (a.find('=') != std::string::npos) set_override(a);
+        else if (is_yaml(a)) load_yaml(a);
+        else load_file(a);
+    }
+    return true;
 }
 
 void Params::set_override(const std::string &a)

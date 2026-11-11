@@ -1,0 +1,12 @@
+//=============================================================================
+// Mercury RUN CONTROL of the fine run.  Physics / numerics are those of ../02_MercuryRun (edit them there).
+// 87 ms/step on 56 ranks, dt ~ 8e-5: ~7 h per 25 time units.
+//=============================================================================
+double max_Time        50.0     // continues from the time of init_fields (coarse run: 25)
+double max_Nstep       100000000
+int    log_every       1000
+int    output_step     20000    // steps between ParaView dumps
+int    restart_step    20000    // steps between rewrites of DATA/fields_final.unsb
+bool   write_vtk       1
+bool   write_fields    1
+bool   write_profile   1

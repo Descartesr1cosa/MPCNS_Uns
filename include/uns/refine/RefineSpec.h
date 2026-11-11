@@ -2,7 +2,7 @@
 // What to refine: flow-based indicators, manually specified regions, or both.
 // The target level of a cell is the maximum over all sources, clipped to max_level.
 //
-// setup keys (see Preprocess/INPUT/refine.txt):
+// setup keys (see case_template/Mercury/03_MercuryRefine/refine.txt):
 //   refine_max_level N
 //   refine_region_<i>  box x0 y0 z0 x1 y1 z1 level
 //   refine_region_<i>  sphere cx cy cz r level

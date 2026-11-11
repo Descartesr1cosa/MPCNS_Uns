@@ -44,11 +44,11 @@ MPCNS_Uns/
 │   └─ comm/        Exchanger（MPI：前向拷贝、边归约、边装配）
 ├─ Preprocess/                mpcns_pre：generate / inspect / export / refine / demo_fields
 ├─ Common/                    与模型无关的 MHD 部件（namespace mhd）：config physics state boundary fluid induction diagnostics io app
-├─ MercuryUns/                水星专有：driver/ multigrid/ initial/ physics/(外逸层、回旋、双极) fluid/(Na+ 源项) induction/(内部电阻) INPUT/
-├─ MarsUns/                   火星专有：driver/ physics/ INPUT/ docs/ scripts/ tools/ tests/
+├─ MercuryUns/                水星专有：driver/ multigrid/ initial/ physics/(外逸层、回旋、双极) fluid/(Na+ 源项) induction/(内部电阻)
+├─ MarsUns/                   火星专有：driver/ physics/ docs/ tools/ tests/
 ├─ tests/  tools/             单元与回归测试；check_vtu.py、run_selftest.sh、conv_report.py、compare_states.py、legacy_compare/、vtu2tec/（Tecplot 转换）
 ├─ docs/                      Conventions  FileFormats  HallTodo  IdealEMF  Methods  Multigrid  MercuryRun  Solver（MarsUns/docs/Mars.md 为火星分支）
-├─ scripts/                   水星流程脚本 01–05（README.md）
+├─ case_template/             `install.sh <work> Mercury|Mars` 安装的运行目录模板（config.yml + mesh/partition/refine/physics/numerics/run.txt，每个参数只有一份）
 ├─ Run/                       算例（数据不入库）
 └─ legacy/                    MPCNS_Mercury 与旧 Preprocess 的原样拷贝
 ```
@@ -83,9 +83,10 @@ MPCNS_Uns/
 | M5 | 与旧 Mercury 的物理对照、电阻固体壳、电离/阻力/双极项 | 🟡 | 代码已写并并入 `MercuryUns`：电阻固体壳、电离/阻力/热松弛、双极项、回旋精确分裂、偏心椭球网格、参考参数文件、负载剖面（`load_profile.*` + `mpcns_pre cost_profile=`）。**一阶**（`second_order=0`）粗网格跑到 t=25（12190 步，2 min 23 s，28 rank）并与旧程序对照，加密网格（12.5 万 / 57 万单元）续算稳定；二阶全模型原先在 t≈0.15 失稳，原因是 Barth–Jespersen 外推使痕量 Na+ 密度变负，已用相对限制器 `recon_rel_limit=0.25` 解决，粗网格二阶跑到 t=25（见 `docs/MercuryRun.md` Diagnosis）；二阶加密网格运行与对比未做 |
 | M6 | Hall、电阻、双极 EMF（Hall 时间步） | ✅ | 实现为半隐式：`time_order=1`（前向 Euler 流体 + E 为未知量的 GMRES，线性化 Hall + 隐式电阻 + 双极），divB 对线性求解容差不敏感；测试 `test_implicit_induction`（np=1/4），whistler 波包对解析解；人工项（artificial resistivity）参考算例为 0，未实现；时间二阶（SSP-RK2 + 分裂电阻）仍保留为 `time_order=2` |
 | M7 | Hall 子循环（A），必要时半隐式（B） | ✅（B） | 采用 B（半隐式），子循环不需要；`Common/induction/HallEMF.*` 里的 `add_hall_emf` 仍是空桩，只被 `task=selftest` 调用，求解器不用 |
-| M9 | 稳态加速：局部伪时间步 + 代数聚合 FAS 多重网格（流体部分，B 在粗层冻结） | 🟡 | 代码、单元测试、粗/细网格对比已做；数学与全部实验记录见 `docs/Multigrid.md`；脚本 `scripts/05_steady_run.sh`；快速模式（R=32+4 层 MG）约少 21 倍迭代但稳态误差 15–70 %，R=4 约少 8 倍迭代、误差几 %；B 的收敛是剩余瓶颈，下一步见 `docs/Multigrid.md` 第 8 节 |
-| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ✅ | 全流程在合成算例（`tools/run_pipeline_demo.sh`）和真实水星算例（`scripts/01–04`，粗 24192 → 细 12.5 万 / 57.5 万单元）上打通；性能测量见 `docs/MercuryRun.md`；Tecplot 经 `tools/vtu2tec`（本机无 Tecplot，用独立 `tecio` 读器验证） |
+| M9 | 稳态加速：局部伪时间步 + 代数聚合 FAS 多重网格（流体部分，B 在粗层冻结） | 🟡 | 代码、单元测试、粗/细网格对比已做；数学与全部实验记录见 `docs/Multigrid.md`；用法见 `numerics.txt` 的稳态选项；快速模式（R=32+4 层 MG）约少 21 倍迭代但稳态误差 15–70 %，R=4 约少 8 倍迭代、误差几 %；B 的收敛是剩余瓶颈，下一步见 `docs/Multigrid.md` 第 8 节 |
+| M8 | 粗解 → 加密 → 续算全流程；Tecplot 输出；文档 | ✅ | 全流程在合成算例（`tools/run_pipeline_demo.sh`）和真实水星算例（CASE 目录 01–04，粗 24192 → 细 12.5 万 / 57.5 万单元）上打通；性能测量见 `docs/MercuryRun.md`；Tecplot 经 `tools/vtu2tec`（本机无 Tecplot，用独立 `tecio` 读器验证） |
 | M10 | 火星十离子分支 `MarsUns`，代码拆为 `Common/` + `MercuryUns/` + `MarsUns/` | ✅ | 十离子、光化学、大气/壳场偶极子、点隐式源项（回旋/拖曳/热松弛）、半隐式 Hall 复用 `ImplicitInduction`；`test_mars_np1/np4`；记录见 `MarsUns/docs/Mars.md`；未做与结构网格 MarsZ5 的逐点对比 |
+| M11 | 使用体验：`install.sh <work> Mercury|Mars` 生成 CASE 运行目录（01_Meshgen…），`config.yml`（路径/进程数）+ 按类型分文件的 txt（每个参数只有一份），求解器自动 mpirun；Windows 可移植（WSL2 / MS-MPI，未在 Windows 上实测） | ✅ | 与旧输入逐步对比结果一致；见 `case_template/README.md` |
 
 ### M3 的实现要点与限制
 - 每个粗六面体内是八叉树；叶子按「手动区域（叶子的角点或中心落入区域）」与「粗单元级的指示器最小层级」决定是否细分。粗单元必须是拓扑六面体（否则报错）。
@@ -126,7 +127,7 @@ MPCNS_Uns/
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j
 cd build && ctest                       # 23 个测试（水星/库 21，火星 2；np=1…7，最多 7 进程）
-./build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt output_dir=Run/demo/geometry proc_num=8
+./build/Preprocess/mpcns_pre tools/demo/demo_mesh.txt case_template/common/partition.txt output_dir=Run/demo/geometry proc_num=8
 tools/run_selftest.sh build /tmp/uns_selftest      # 生成 + 多进程 CT 自检
 tools/run_refine_demo.sh build /tmp/uns_demo       # 粗网格 → 合成粗解 → 加密 → 分区 → 细网格 CT 自检
 tools/run_pipeline_demo.sh build /tmp/uns_pipe     # 粗网格 → 粗解求解 → 加密 → 细网格续算（约 30 s，最多 8 进程）

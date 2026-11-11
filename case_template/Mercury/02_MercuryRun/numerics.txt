@@ -1,0 +1,24 @@
+//=============================================================================
+// Mercury NUMERICS: time integration, reconstruction, induction solver.  Shared by 02_MercuryRun and 04_MercuryRunFine.
+// Physics: physics.txt.  Time / output control: run.txt.
+//=============================================================================
+double CFL                1.0          // dt = CFL V / sum_f (|u.n| + c_fast) A
+int    time_order         1            // 1: forward Euler + semi-implicit induction (Hall, resistivity); 2: SSP-RK2 + resistive split step
+bool   second_order       0            // 0 = first order (robust); 1 = limited linear reconstruction (MUSCL)
+double recon_rel_limit    0.25         // positivity limiter of the 2nd-order reconstruction (rho, p within +-25 % of the cell mean); 0 = off
+double cuct               0.5          // strength of the UCT part of the ideal EMF
+
+//--- semi-implicit induction (GMRES, warm-started)
+double induction_rtol     1e-4
+int    induction_max_it   100
+int    induction_restart  20
+bool   induction_ilu      0            // block-Jacobi ILU(0) preconditioner
+double induction_ilu_shift 0.3
+double resistive_rtol     5e-3         // time_order = 2 only
+int    resistive_max_it   200
+
+//--- steady state instead of time-accurate (pseudo-time + FAS multigrid, docs/Multigrid.md): uncomment
+// bool   steady          1
+// double lts_b_ratio     32           // 4 + mg_levels 1 = more accurate, slower
+// int    mg_levels       4
+// double steady_tol      1e-7

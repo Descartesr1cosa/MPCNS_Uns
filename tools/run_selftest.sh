@@ -6,6 +6,6 @@ set -e
 B=${1:-build}; W=${2:-${TMPDIR:-/tmp}/uns_selftest}
 mkdir -p "$W"
 for n in 1 2 5 8; do
-  "$B/Preprocess/mpcns_pre" Preprocess/INPUT/setup.txt output_dir="$W/g$n" proc_num=$n write_vtk=0 partition_method=rcb > /dev/null
+  "$B/Preprocess/mpcns_pre" tools/demo/demo_mesh.txt case_template/common/partition.txt output_dir="$W/g$n" proc_num=$n write_vtk=0 partition_method=rcb > /dev/null
   mpirun --allow-run-as-root --oversubscribe -np $n "$B/MercuryUns/MercuryUns" - geometry_dir="$W/g$n" | tail -1
 done

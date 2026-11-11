@@ -13,8 +13,8 @@ without the Hall contribution to the EMF, with the fluid/solid load imbalance ta
 ## Done
 | item | where |
 |---|---|
-| Mesh: cubed-sphere solid shell r0..r1 (0.8..1.0, uniform layers) + fluid out to the eccentric ellipsoid x[-12,4], y,z[-10,10] (rays from the origin, geometric radial growth) | `CubedSphereSpec::{r_surf,ellipsoid,ell_lo,ell_hi}`, `MercuryUns/INPUT/mercury_mesh.txt` (use `cs_r_stretch=1.07`: 1.15 gives 0.016-thick first cells on the sunward side) |
-| Reference parameters in our format | `MercuryUns/INPUT/mercury.txt` (all values of `0_General_Setting … 3_MHD_Control`; the Hall switch/taper are used by the semi-implicit induction below, Hall sub-cycling keys are ignored) |
+| Mesh: cubed-sphere solid shell r0..r1 (0.8..1.0, uniform layers) + fluid out to the eccentric ellipsoid x[-12,4], y,z[-10,10] (rays from the origin, geometric radial growth) | `CubedSphereSpec::{r_surf,ellipsoid,ell_lo,ell_hi}`, `case_template/Mercury/01_Meshgen/mesh.txt` (use `cs_r_stretch=1.07`: 1.15 gives 0.016-thick first cells on the sunward side) |
+| Reference parameters in our format | `case_template/Mercury/02_MercuryRun/{physics,numerics,run}.txt` (all values of `0_General_Setting … 3_MHD_Control`; the Hall switch/taper are used by the semi-implicit induction below, Hall sub-cycling keys are ignored) |
 | B_add = IMF + dipole (SI moment/centre/softening converted like the legacy `DipoleField`), B_induced starts at 0; far-field inflow edges carry E = -u_inf x B_imf | `initial/`, `Config` |
 | Na+ seed state (rho = 1e-6 rho_H, at rest, p = p_H 1e-6/23), exosphere (Exner et al. 2020), photo-ionisation rate, shadow, drag, thermal relaxation, thermal drift | `MercuryUns/physics/Exosphere.*`, `MercuryUns/fluid/MercurySources.cpp::add_sources` |
 | Ambipolar force on the ions (-w_s grad p_e) and ambipolar edge EMF (-pressure_coef grad p_e / n_e,eff, nodal pressure, d0 of a potential) | `physics/Ambipolar.*` |
@@ -30,7 +30,7 @@ All 23 ctest tests of the repository pass (21 library/Mercury, 2 Mars), includin
 There are still no dedicated unit tests for `Resistive`, `Gyration`, `Ambipolar`, `Exosphere` (they are only exercised by `test_solver`/`test_implicit_induction` and the full runs).
 
 ## Result with the first-order scheme (second_order=0)
-Mesh `mercury_mesh.txt` (24192 cells, `cs_r_stretch=1.07`), 28 ranks, parameters of `mercury.txt`, `second_order=0`:
+Mesh `case_template/Mercury/01_Meshgen/mesh.txt` (24192 cells, `cs_r_stretch=1.07`), 28 ranks, parameters of `physics.txt` / `numerics.txt`, `second_order=0`:
 **reaches t = 25 stably** in 2 min 23 s (12190 steps, dt ~ 2e-3, divB <= 7.5e-14, min rho_H 0.033, min p_H 2.6e-3, Na+ mass 3.44 and growing,
 H mass 3314 -> 3400). Command: add `second_order=0 output_step=5000` to the resume command below. Not yet analysed: the subsolar magnetopause
 stand-off (the sampled x-axis profile still shows slow dense plasma, |u| < 0.3, down to the surface — the dayside pile-up / Na+ loading looks
@@ -59,13 +59,13 @@ sources are smeared, Na+ leaves through the absorbing wall).
 per rank compute time/step (wall - communication/wait), wait time and fraction, owned fluid / solid cells, ghost ("virtual") cells and ghost/owned ratio,
 owned edges, resistive edges, CG iterations; the least-squares fit `compute ~ a n_fluid + b n_solid` (solid/fluid ratio, r2), the wait per ghost cell,
 and a `recommended_cost_model` (cost_fluid=1, cost_solid, comm_fluid, comm_solid). Use it for the refined mesh:
-`mpcns_pre setup.txt mesh.txt cost_profile=<run>/load_profile.txt proc_num=N ...` (the .txt holds the `cost_*` keys; the partition report now also
+`mpcns_pre` with `cost_profile: <run>/load_profile.txt` in `03_MercuryRefine/config.yml` (or `cost_profile=...` on the command line) (the .txt holds the `cost_*` keys; the partition report now also
 lists the owned fluid / solid cells of each rank).
 First measurements (24192 cells, 28 ranks, ~860 cells/rank, first order, 3 time units): compute max/mean = 1.11, **wait fraction 53-64 %**,
 fitted solid cost 0.26-0.50 of a fluid cell (r2 0.2-0.4: rank-to-rank compute differences are small, so the fit is only a rough guide),
 the repartition with the fitted weights did not change the balance measurably (1.11 -> 1.13, noise level). What matters more here:
 - the implicit resistive CG: ~39 iterations/step with rtol 1e-6, **40 % of the run time** (19.8 s vs 11.6 s without it); `resistive_rtol=5e-3`
-  (the reference value, now the default in mercury.txt) gives 15.7 s;
+  (the reference value, now the default in physics.txt) gives 15.7 s;
 - at ~860 cells per rank the run is communication/latency bound (53 % wait even without the CG): fewer ranks (or a denser mesh) will be as fast per step.
 
 ## Refinement from the flow field and speed test (first order)
@@ -75,10 +75,11 @@ manual shells `1.0-1.12 -> level 2`, `1.12-1.35 -> level 1`, plus indicators `h|
 The cell fields are prolonged piecewise-constant by default (`refine_prolong_linear=0`): the limited linear prolongation of the conservative
 variables produced states that blew up in the first step (negative pressure / dt -> 1e-28). Command:
 ```
-mpcns_pre setup.txt task=refine coarse_dir=<dir with global.unsb> coarse_fields=<fields_final.unsb> output_dir=<fine> proc_num=56 \
+# 03_MercuryRefine/config.yml: task: refine, coarse_dir, coarse_fields, output_dir, nproc: 56;  refine.txt holds the keys below.  By hand:
+mpcns_pre partition.txt task=refine coarse_dir=<dir with global.unsb> coarse_fields=<fields_final.unsb> output_dir=<fine> proc_num=56 \
    refine_max_level=2 refine_solid_max_level=0 refine_spherical_snap=1 "refine_region_1=shell 1.0 1.12 2" "refine_region_2=shell 1.12 1.35 1" \
    "refine_indicator_1=current 1.0 1" "refine_indicator_2=density 0.5 1" [cost_profile=<coarse run>/load_profile.txt]
-mpirun -np 56 MercuryUns setup.txt mercury.txt geometry_dir=<fine> init_fields=<fine>/fine_fields.unsb second_order=0 ...
+mpirun -np 56 MercuryUns physics.txt numerics.txt run.txt task=run geometry_dir=<fine> init_fields=<fine>/fine_fields.unsb second_order=0 ...
 ```
 Speed (600 steps, first order, dt ~ 3.8e-4, wall/step = slowest rank compute + wait):
 | ranks | cells/rank | weights | wall/step | compute max/mean | wait |
@@ -146,11 +147,11 @@ curl-curl part; a plain ILU(0) of `I + dt M L` is unstable for large dt, hence t
 the sparse mesh, 73 -> 2.7 on the refined one; the old explicit step cost 16 ms, the semi-implicit one with Hall now 12.7 ms); defaults: Jacobi, rtol 1e-4 (`induction_ilu=1` selects ILU).
 Hall explicit limit for reference: `dt_hall_explicit` in the log (1e-4 .. 1e-5 here).
 
-Dense mesh (`scripts/03_refine.sh`): 574665 cells (14114 / 46647 / 237232 / 276672 at levels 0-3, 45924 polyhedra), first fluid layer 0.0063 R_M (8x finer than the coarse
+Dense mesh (`03_MercuryRefine/refine.txt`): 574665 cells (14114 / 46647 / 237232 / 276672 at levels 0-3, 45924 polyhedra), first fluid layer 0.0063 R_M (8x finer than the coarse
 mesh), B transfer div B 1.1e-11, partition imbalance 1.02 (cost profile of the coarse run). Short run from the coarse state at t = 25, 56 ranks, 3000 steps:
 **stable** (4 min 22 s): divB 1.6e-12 constant, min rho_H 0.043 -> 0.028 (the cavity keeps deepening while Na+ accumulates; the legacy minimum is 0.006), dt 1.5e-4 -> 8.5e-5
 (still decreasing slowly as the near-planet cells fill up), 9 GMRES it/step, 87 ms/step, compute imbalance 1.12, wait 28 %. Estimated cost of 25 more time units:
-~3e5 steps x 87 ms = 7 h. Scripts for the whole chain: `scripts/` (README there).
+~3e5 steps x 87 ms = 7 h. The whole chain is the CASE folders 01-04 (`case_template/README.md`).
 
 ## NOT done yet (status 2026-11-07)
 1. The second-order stability problem is fixed on the coarse mesh by `recon_rel_limit` (below); still to do: second order on the refined meshes, comparison with the legacy field.  Older statements "no run has reached t = 25" are obsolete.
@@ -165,7 +166,7 @@ Symptom: dt collapses to ~1e-10 within ~5 steps; the first sign is an anomalous 
 T ≈ 1e4, one step before u_Na jumps) in first-fluid-layer cells (r ≈ 1.03–1.05), at several places near the cube-corner / panel-diagonal
 directions and in the polar caps (B up to 600, rho_H ≈ 5, rho_Na up to 30 from the photo-ionisation hot spots).
 
-Re-checked on 2026-11-07 with the current code (12 ranks, same 24192-cell mesh, `time_order=1` default of `mercury.txt`, `second_order=1`): dt collapses to 1e-25 at
+Re-checked on 2026-11-07 with the current code (12 ranks, same 24192-cell mesh, `time_order=1` default of `physics.txt` / `numerics.txt`, `second_order=1`): dt collapses to 1e-25 at
 t = 0.1554 (step ~55), `min p_H` -> 1e-12, `mass_Na` 0.21 -> 4e2; `second_order=0` runs to t = 0.6 with `mass_Na` 0.18.  The experiments in the table below
 were done earlier, mostly with the SSP-RK2 path (`time_order=2`, explicit EMF); the failure time is the same order in both time integrators, so the cause is not the
 time integration of the induction.
@@ -231,8 +232,8 @@ Ideas, in order of cost (earlier list; items 1 and 2 were superseded by the diag
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
 cmake -S . -B build && cmake --build build -j8 && (cd build && ctest)
 W=/tmp/mercury_work; mkdir -p $W/run
-build/Preprocess/mpcns_pre Preprocess/INPUT/setup.txt MercuryUns/INPUT/mercury_mesh.txt output_dir=$W/geometry proc_num=12 cs_r_stretch=1.07 write_vtk=0
-R=$PWD; cd $W/run && mpirun -np 12 $R/build/MercuryUns/MercuryUns $R/MercuryUns/INPUT/setup.txt $R/MercuryUns/INPUT/mercury.txt \
+build/Preprocess/mpcns_pre case_template/Mercury/01_Meshgen/mesh.txt case_template/common/partition.txt output_dir=$W/geometry proc_num=12 cs_r_stretch=1.07 write_vtk=0
+R=$PWD; cd $W/run && mpirun -np 12 $R/build/MercuryUns/MercuryUns $R/case_template/Mercury/02_MercuryRun/{physics,numerics,run}.txt task=run \
      geometry_dir=$W/geometry output_dir=$W/run/DATA max_Time=0.6 log_every=10        # second order: fails near t = 0.155 (3 s wall); add second_order=0 for the stable run
 # dumps around the failure:  output_step=1 output_start=55 max_Nstep=66 write_vtk=1  then
 tools/inspect_vtu_extremes.py 0000060 $W/run/DATA

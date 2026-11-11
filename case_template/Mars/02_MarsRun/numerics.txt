@@ -1,0 +1,11 @@
+//=============================================================================
+// Mars NUMERICS: time step, reconstruction, induction solver.  Physics: physics.txt.  Time / output control: run.txt.
+//=============================================================================
+double CFL                0.5
+bool   second_order       0             // 0 = first order (as MarsZ5); 1 = limited MUSCL
+double cuct               0.5           // strength of the UCT part of the ideal EMF
+
+//--- semi-implicit Hall / induction solve (GMRES)
+double induction_rtol     1e-4
+int    induction_max_it   100
+int    induction_restart  20

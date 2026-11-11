@@ -1,0 +1,10 @@
+# Step 4 (Mercury): run on the refined mesh.   Run:  ./MercuryUns
+task: run
+geometry_dir: ../03_MercuryRefine/geometry                       # refined mesh (step 3)
+init_fields: ../03_MercuryRefine/geometry/fine_fields.unsb       # coarse solution on the fine mesh;  restart: DATA/fields_final.unsb of THIS folder
+output_dir: DATA
+nproc: auto                                                      # = nproc of step 3
+# mpi_launcher: mpirun
+# mpi_args: --oversubscribe
+# physics and numerics are shared with step 2 (single copy); only run control is local.  To change e.g. second_order for this run only, add the key to run.txt (it wins).
+settings: [../02_MercuryRun/physics.txt, ../02_MercuryRun/numerics.txt, run.txt]

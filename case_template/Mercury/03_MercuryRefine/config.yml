@@ -1,0 +1,9 @@
+# Step 3 (Mercury): refine the mesh from the coarse flow field and re-partition.   Run:  ./mpcns_pre
+task: refine
+coarse_dir: ../01_Meshgen/geometry                      # coarse mesh (step 1)
+coarse_fields: ../02_MercuryRun/DATA/fields_final.unsb  # coarse solution (step 2) for the refinement indicators
+cost_profile: ../02_MercuryRun/DATA/load_profile.txt    # measured cell cost of step 2 for load balancing (optional)
+output_dir: geometry                                    # refined mesh + fine_fields.unsb
+nproc: 56                                               # ranks of step 4
+write_vtk: true
+settings: [refine.txt, ../01_Meshgen/partition.txt]     # partition options are the ones of step 1 (single copy)

@@ -8,11 +8,11 @@
 |---|---|
 | 十离子、化学网络、大气/光电离、壳场偶极子（与原程序逐字相同，只依赖标量） | `MarsUns/physics/Mars{Species,Chemistry,AtmosphereModel,Dipoles}.*` |
 | 求解器（本分支新写，含点隐式源项） | `MarsUns/driver/MarsSolver.{h,cpp}`，入口 `MarsUns/main.cpp` |
-| 参数 / 网格 / 偶极子 | `MarsUns/INPUT/mars.txt`，`MarsUns/INPUT/mars_mesh.txt`，`MarsUns/INPUT/Dipoles_4840` |
-| 测试 / 脚本 / 工具 | `MarsUns/tests/test_mars.cpp`（`test_mars_np1/np4`），`MarsUns/scripts/run.sh`，`MarsUns/tools/*.py` |
+| 参数 / 网格 / 偶极子 | `case_template/Mars/`：`01_Meshgen/{config.yml,mesh.txt}`，`02_MarsRun/{config.yml,physics.txt,numerics.txt,run.txt,Dipoles_4840}`，`case_template/common/partition.txt` |
+| 测试 / 脚本 / 工具 | `MarsUns/tests/test_mars.cpp`（`test_mars_np1/np4`），`./install.sh <work> Mars`（生成运行目录），`MarsUns/tools/*.py` |
 | 共用部件（流体通量、CT、UCT、半隐式 Hall、边界、IO） | `Common/`，见仓库 README |
 
-运行：`MarsUns/scripts/run.sh 4 0.1`（生成无固体壳的立方球网格，内边界 = 100 km 高度 r = 1.02945 R_M，然后 `mpirun -np 4 build/MarsUns/MarsUns MarsUns/INPUT/mars.txt ...`）。
+运行：`./install.sh <work> Mars`，然后 `cd <work>/CASE/01_Meshgen && ./mpcns_pre`（无固体壳的立方球网格，内边界 = 100 km 高度 r = 1.02945 R_M，`config.yml` 里设 `nproc`），再 `cd ../02_MarsRun && ./MarsUns`（自动 mpirun，`nproc: auto` 取网格分区数；`run.txt` 里改 `max_Time` 等）。参数分布见 `case_template/README.md`。
 
 ## 与结构网格版的对应
 | | MarsZ5 | 本分支 |

@@ -11,7 +11,13 @@ namespace uns
 class Params
 {
 public:
-    void load_file(const std::string &path);
+    void load_file(const std::string &path);          // legacy "type name value" file
+    void load_yaml(const std::string &path);          // flat "key: value" file (paths / launch settings); see load_args
+    // Command line = any mix of config files (*.yml / *.yaml / other = legacy txt, later wins) and name=value overrides.
+    // A yml file may list further setting files with  settings: [a.txt, b.txt]  (loaded first, the yml keys win).
+    // With chdir_to_yml the process enters the directory of the first yml file, so every relative path is relative to the case folder.
+    // With no file argument (nothing, or only name=value), ./config.yml is used when it exists.  Returns false when nothing was loaded.
+    bool load_args(const std::vector<std::string> &args, bool chdir_to_yml = true);
     void set_override(const std::string &assignment); // "name=value"
     bool has(const std::string &k) const { return kv_.count(k) != 0; }
     int get_int(const std::string &k, int def) const;

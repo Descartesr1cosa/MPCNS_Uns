@@ -1,0 +1,14 @@
+//=============================================================================
+// Mesh partitioning (parts = MPI ranks, set by nproc in config.yml) and the cost model that weights the cells.
+// Shared by the mesh generation (01_Meshgen) and the refinement (03_*Refine).
+//=============================================================================
+string partition_method        hilbert     // hilbert | morton | rcb | metis (metis needs UNS_ENABLE_METIS)
+int    partition_refine_passes 8           // greedy boundary refinement, 0 = off
+double partition_tolerance     0.03        // allowed load imbalance
+// vertex weight = cell compute cost ; edge weight = halo volume of the shared face.
+// A load_profile.txt of a previous run (cost_profile: in the refine config.yml) replaces these defaults.
+double cost_fluid              1.0         // fluid + electromagnetics
+double cost_solid              0.35        // electromagnetics only (solid shell)
+double cost_extra_face         0.04        // per face beyond 6 (polyhedra)
+double comm_fluid              1.0
+double comm_solid              0.3

@@ -1,0 +1,9 @@
+//=============================================================================
+// Mars RUN CONTROL: how long to run and what to write.  Physics: physics.txt.  Numerics: numerics.txt.
+//=============================================================================
+double max_Time           1.0      // nondimensional time (L_ref / U_ref = 103.9 s)
+double max_Nstep          100000000
+int    log_every          100
+int    output_step        0        // ParaView dumps every n steps (0 = first and last only)
+bool   write_vtk          1
+bool   write_fields       1        // fields_final.unsb (restart)

@@ -1,0 +1,6 @@
+# Step 1 (Mars): generate the mesh (no solid shell; inner boundary = 100 km altitude) and partition it.   Run:  ./mpcns_pre
+task: generate
+output_dir: geometry
+nproc: 4                    # number of partitions = MPI ranks of 02_MarsRun (picked up automatically)
+write_vtk: false
+settings: [mesh.txt, partition.txt]

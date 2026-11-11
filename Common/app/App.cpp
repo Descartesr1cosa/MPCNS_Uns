@@ -1,10 +1,22 @@
 #include "app/App.h"
 
+#ifdef _WIN32
+#include <process.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <cstdio>
 #include <exception>
 #include <stdexcept>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "diagnostics/DivB.h"
 #include "induction/EdgeEMF.h"
@@ -71,10 +83,129 @@ int selftest(MPI_Comm comm, const LocalMesh &lm, const Params &p)
 }
 } // namespace
 
+namespace
+{
+bool under_mpi()
+{
+    for (const char *v : {"OMPI_COMM_WORLD_SIZE", "PMIX_RANK", "PMI_SIZE", "PMI_RANK", "MPI_LOCALRANKID", "MV2_COMM_WORLD_SIZE", "SLURM_PROCID", "UNS_RELAUNCHED"})
+        if (std::getenv(v)) return true;
+    return false;
+}
+
+std::string find_in_path(const std::string &prog)
+{
+    namespace fs = std::filesystem;
+    if (prog.find('/') != std::string::npos || prog.find('\\') != std::string::npos) return fs::exists(prog) ? prog : "";
+    const char *path = std::getenv("PATH");
+    std::istringstream is(path ? path : "");
+#ifdef _WIN32
+    const char sep = ';';
+    const char *exts[] = {"", ".exe", ".bat", ".cmd"};
+#else
+    const char sep = ':';
+    const char *exts[] = {""};
+#endif
+    for (std::string d; std::getline(is, d, sep);)
+        for (const char *e : exts)
+            if (!d.empty() && fs::exists(fs::path(d) / (prog + e))) return (fs::path(d) / (prog + e)).string();
+    return "";
+}
+
+// `./MercuryUns` started without mpirun: read config.yml, work out the number of ranks (nproc, or "auto" = number of
+// part_*.unsb in geometry_dir) and re-execute ourselves under the MPI launcher.  Returns only when no relaunch is needed.
+void maybe_relaunch(int argc, char **argv)
+{
+    if (under_mpi()) return;
+    namespace fs = std::filesystem;
+    const fs::path cwd = fs::current_path();
+    Params p;
+    try
+    {
+        if (!p.load_args(std::vector<std::string>(argv + 1, argv + argc))) return;
+    }
+    catch (const std::exception &) { fs::current_path(cwd); return; } // the real parse below reports the error
+    int np = 1;
+    const std::string n = p.get_string("nproc", "auto");
+    if (n == "auto")
+    {
+        np = 0;
+        std::error_code ec;
+        for (const auto &e : fs::directory_iterator(p.get_string("geometry_dir", "geometry"), ec))
+        {
+            const std::string f = e.path().filename().string();
+            if (f.rfind("part_", 0) == 0 && f.size() > 5 && f.substr(f.size() - 5) == ".unsb") ++np;
+        }
+        if (np == 0) np = 1;
+    }
+    else np = std::max(1, std::atoi(n.c_str()));
+    fs::current_path(cwd); // the child parses the same arguments again from the original directory
+    if (np == 1 && p.get_string("mpi_launcher", "").empty()) return; // single rank: MPI singleton start
+    #ifdef _WIN32
+    std::string launcher = p.get_string("mpi_launcher", "mpiexec"); // MS-MPI
+#else
+    std::string launcher = p.get_string("mpi_launcher", "mpirun");
+#endif
+    std::string exe = find_in_path(launcher);
+#ifdef UNS_MPIEXEC
+    if (exe.empty() && (launcher == "mpirun" || launcher == "mpiexec")) exe = UNS_MPIEXEC; // the one this binary was built with
+#endif
+    if (exe.empty())
+    {
+        std::fprintf(stderr, "%s: cannot find the MPI launcher '%s'; load your MPI module (PATH) or set mpi_launcher in config.yml\n", argv[0], launcher.c_str());
+        std::exit(1);
+    }
+    std::vector<std::string> a{exe};
+    const std::string base = fs::path(exe).filename().string();
+    if (p.get_string("mpi_np_flag", "").empty()) a.push_back("-np"); else a.push_back(p.get_string("mpi_np_flag", ""));
+    a.push_back(std::to_string(np));
+#ifndef _WIN32
+    if (geteuid() == 0 && (base == "mpirun" || base == "mpiexec") && p.get_string("mpi_args", "").find("allow-run-as-root") == std::string::npos &&
+        fs::exists(fs::path(exe).parent_path() / "ompi_info")) // Open MPI refuses to run as root without this
+        a.push_back("--allow-run-as-root");
+#endif
+    {
+        std::istringstream is(p.get_string("mpi_args", ""));
+        for (std::string t; is >> t;) a.push_back(t);
+    }
+    {
+        std::error_code ec;
+        fs::path self = fs::read_symlink("/proc/self/exe", ec); // Linux
+#ifdef _WIN32
+        char buf[MAX_PATH * 4];
+        const DWORD n = GetModuleFileNameA(nullptr, buf, sizeof buf);
+        if (n > 0 && n < sizeof buf) self = std::string(buf, n);
+#endif
+        a.push_back(self.empty() ? fs::absolute(argv[0]).string() : self.string());
+    }
+    for (int i = 1; i < argc; ++i) a.push_back(argv[i]);
+#ifdef _WIN32
+    _putenv_s("UNS_RELAUNCHED", "1");
+#else
+    setenv("UNS_RELAUNCHED", "1", 1);
+#endif
+    std::printf("[launch] %s\n", [&] { std::string s; for (auto &t : a) s += t + " "; return s; }().c_str());
+    std::fflush(stdout);
+    std::vector<char *> cargv;
+    for (auto &t : a) cargv.push_back(t.data());
+    cargv.push_back(nullptr);
+#ifdef _WIN32
+    // no exec() on Windows: run the launcher, wait, pass its exit code on
+    const intptr_t rc = _spawnv(_P_WAIT, exe.c_str(), cargv.data());
+    if (rc == -1) std::perror("spawn");
+    std::exit(rc == -1 ? 1 : static_cast<int>(rc));
+#else
+    execv(exe.c_str(), cargv.data());
+    std::perror("execv");
+    std::exit(1);
+#endif
+}
+} // namespace
+
 namespace mhd
 {
 int run_app(int argc, char **argv, const char *name, const RunFn &run)
 {
+    maybe_relaunch(argc, argv);
     MPI_Init(&argc, &argv);
     int rank = 0, np = 1, rc = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -82,12 +213,9 @@ int run_app(int argc, char **argv, const char *name, const RunFn &run)
     try
     {
         Params p;
-        for (int i = 1; i < argc; ++i) // setup files (later ones win), then name=value overrides
-        {
-            const std::string a = argv[i];
-            if (a == "-") continue;
-            if (a.find('=') == std::string::npos) p.load_file(a); else p.set_override(a);
-        }
+        // config.yml (default) and/or setup files (later ones win), then name=value overrides; relative paths are relative to the yml's folder
+        if (!p.load_args(std::vector<std::string>(argv + 1, argv + argc)))
+            throw std::runtime_error("no config.yml in the current directory and no setup file given");
         char fname[64];
         std::snprintf(fname, sizeof fname, "/part_%05d.unsb", rank);
         LocalMesh lm = io::read_local_mesh(p.get_string("geometry_dir", "geometry") + fname);

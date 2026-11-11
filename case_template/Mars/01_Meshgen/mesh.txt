@@ -1,7 +1,7 @@
 //=============================================================================
 // Mars case mesh (coarse test): cubed-sphere, NO solid shell.  The inner boundary (tag "inner") is the lower ion boundary at
 // 100 km altitude, r = 1 + 100 km / 3396 km = 1.02945 R_M, and is a wall with the photochemical-equilibrium ghost state.
-//   mpcns_pre Preprocess/INPUT/setup.txt MarsUns/INPUT/mars_mesh.txt output_dir=... proc_num=N
+//   cd 01_Meshgen && ./mpcns_pre   (config.yml: output folder, nproc)
 // cs_r_surf must stay 0 here (no solid layers).  Domain: ellipsoid x[-10,4] y,z[-6,6] (sun at +x), geometric radial growth.
 //=============================================================================
 string mesh_source        cubed_sphere
@@ -13,4 +13,3 @@ double cs_r_stretch       1.18
 bool   cs_ellipsoid       1
 string cs_ell_lo          -10 -6 -6
 string cs_ell_hi          4 6 6
-string partition_method   hilbert

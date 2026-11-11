@@ -1,0 +1,6 @@
+# Step 1 (Mercury): generate the coarse mesh and partition it.   Run:  ./mpcns_pre
+task: generate              # generate | inspect
+output_dir: geometry        # part_XXXXX.unsb, global.unsb, partition_report.txt
+nproc: 12                   # number of partitions = MPI ranks of the runs on this mesh (02_MercuryRun picks it up automatically)
+write_vtk: false            # true: part_XXXXX.vtu + partition.pvtu for ParaView (coloured by rank)
+settings: [mesh.txt, partition.txt]     # mesh.txt: geometry / growth rate;  partition.txt: partition method and cost model

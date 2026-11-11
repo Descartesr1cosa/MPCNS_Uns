@@ -33,7 +33,7 @@ struct Scales
     double hall_coef = 0;               // B_ref M_ref / (U q L mu0 rho_ref N_A): E_Hall = hall_coef / n_e,eff * (J x B)
     double inver_Rem = 0;               // eta_max / (mu0 U_ref L_ref): nondimensional magnetic diffusivity
 
-    // From the legacy-style physical reference values (U_ref, T_ref, n_ref, ... see MercuryUns/INPUT/setup.txt).
+    // From the legacy-style physical reference values (U_ref, T_ref, n_ref, ... see case_template/Mercury/02_MercuryRun/physics.txt).
     static Scales from_params(const uns::Params &p);
     // Directly nondimensional (tests): unit masses, no induce term.
     static Scales simple(double gamma, double inver_MA2, double mass_ratio_Na = 1.0);

@@ -265,10 +265,10 @@ Two reasons: (i) without a real preconditioner the GMRES cost grows roughly with
 ## 7. How to run
 ```
 export PATH=/workspace/software/openmpi-5.0.11/bin:$PATH
-# coarse steady solution (mesh of 02_coarse_run.sh), 12 ranks:           scripts/05_steady_run.sh coarse 12 5000     (MODE=fast: R=32 + 4-level MG, default;  MODE=accurate: R=4, no MG)
-# refine from it (03_refine.sh), then the refined steady run:           scripts/05_steady_run.sh fine 56 20000     (RESTART=1 continues)
+# CASE folder 02_MercuryRun: uncomment the steady block in numerics.txt (steady, lts_b_ratio, mg_levels, steady_tol) and run ./MercuryUns
+#   fast: lts_b_ratio 32 + mg_levels 4 (default of the block);  accurate: lts_b_ratio 4, mg_levels 1.  Then refine (03) and repeat in 04.
 # by hand:
-mpirun -np 12 MercuryUns setup.txt mercury.txt geometry_dir=... output_dir=... steady=1 second_order=0 lts_b_ratio=32 \
+mpirun -np 12 MercuryUns physics.txt numerics.txt run.txt task=run geometry_dir=... output_dir=... steady=1 second_order=0 lts_b_ratio=32 \
     mg_levels=4 mg_cycle_every=4 mg_start=200 steady_tol=1e-7 max_Nstep=5000 log_every=100
 python3 tools/conv_report.py run.log        # convergence table
 python3 tools/compare_states.py <geometry_dir> ref/fields_final.unsb run/DATA/fields_final.unsb   # relative L2 error against a reference state
@@ -306,7 +306,7 @@ at the end of a multigrid run the hierarchy sizes are printed once (`multigrid: 
 12. **Accuracy check against the time-accurate steady state** (section 6.5): the global-step run, continued to t = 75, converges (res 1e-7) to mass_Na 3.6613; the LTS fixed points differ by 3 % (R = 4) to 15–70 % (R = 32); earlier statements that the global-step run "never converges" were wrong and are corrected; annealing R tested (6.6).  `tools/compare_states.py` added.
 13. **Implicit ideal induction prototype** (6.7): works mechanically, but GMRES cost grows with R and the frozen-u iteration does not converge; kept as an opt-in experimental switch.
 14. Files added/changed: `MercuryUns/multigrid/*`, `driver/Solver.*` (`step_pseudo`, `mg_correct_`, residuals), `MercuryUns/fluid/MercurySources.*` (`cell_time_steps`, `add_sources_n`; then still called `fluid/FluidRHS.*`), `physics/Gyration.*` (`gyrate_n`, per-cell steps), `induction/Faraday.*` (`faraday_update_edge_dt`),
-    `induction/ImplicitInduction.*` (edge steps), `Config.*`, `tests/test_multigrid.cpp`, `tests/test_pseudo_time.cpp`, `tools/conv_report.py`, `scripts/05_steady_run.sh`, `PLAN.md` (M9).
+    `induction/ImplicitInduction.*` (edge steps), `Config.*`, `tests/test_multigrid.cpp`, `tests/test_pseudo_time.cpp`, `tools/conv_report.py`, `PLAN.md` (M9).
 
 15. **Two attempts that were tried and reverted (not in the code).** (a) Anderson acceleration (depth 5–20, weighted inner product, on the whole state, B step R = 1): worse than the plain iteration (res_H 1e-3 instead of 3e-5 after 3000 iterations; the pseudo-step map is non-smooth because of floors, limiters and the varying step field).
     (b) Projected B update (desired increment −τ_f d1E projected on range(d1) by a few Jacobi-CG iterations of the curl-curl system; exact fixed point and exact d2 = 0 for any iteration count) was written but abandoned before the first run, by decision: the next approach is a curl-curl multigrid for B on a nested hierarchy (section 8).
@@ -382,7 +382,7 @@ A hierarchy of $m$ levels can give at most $\sim 2.7^{\,m-1}$ (≈ 20× for 4 le
 the expected benefit with more levels is bounded by the CFL ratio of the levels.  Cheaper variants to try next: use the rate of the last smoothing step instead of a separate evaluation, a cheaper $P$ (local, linear) instead of the CG inside `transfer_B`, 3–4 levels.
 
 ### 11.3 Multigrid on / off with the Hall term ON (matched runs, 2026-11-05)
-Decision of the user: the Hall term must stay on.  All steady-mode runs of sections 6.1–6.6 used `mercury.txt` (Hall on); only the B prototype of 11.2 had it off.  Matched comparison, coarse mesh, 3 ranks, Hall on,
+Decision of the user: the Hall term must stay on.  All steady-mode runs of sections 6.1–6.6 used the Mercury physics.txt (Hall on); only the B prototype of 11.2 had it off.  Matched comparison, coarse mesh, 3 ranks, Hall on,
 `mg_levels=4`, cycle every 4 steps, start 200 (tolerance res_H < 1e-5, res_B < 1e-3):
 
 | mode | multigrid | iterations | wall | final res_H / res_B (3000 it) |

@@ -1,0 +1,11 @@
+# Step 2 (Mars): ten-ion Hall-MHD run.   Run:  ./MarsUns
+# config.yml = WHERE things are and HOW MANY ranks.  Everything numerical is in the txt files below (each key lives in exactly one).
+task: run
+geometry_dir: ../01_Meshgen/geometry
+output_dir: DATA
+init_fields: ""                         # empty = free stream;  or a fields_final.unsb of an earlier run (restart)
+Crustal_Dipoles_File: Dipoles_4840      # crustal-field dipole table (read when is_Crustal_Bfield 1 in physics.txt)
+nproc: auto                             # auto = number of partitions of geometry_dir;  or an integer
+# mpi_launcher: mpirun
+# mpi_args: --oversubscribe
+settings: [physics.txt, numerics.txt, run.txt]

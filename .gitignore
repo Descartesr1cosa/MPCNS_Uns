@@ -8,3 +8,7 @@
 *.cplx
 *.sol
 __pycache__/
+
+# generated run folders (work directories) are not tracked
+/CASE/
+/work/

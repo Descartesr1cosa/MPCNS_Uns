@@ -1,0 +1,49 @@
+//=============================================================================
+// Mars PHYSICS (ten-ion Hall-MHD): constants, solar wind, atmosphere, crustal field, switches, boundaries.  (Parameters of MarsZ5 9999setup.)
+// Numerical method: numerics.txt.  Time / output control: run.txt.  Paths and ranks: config.yml.
+//=============================================================================
+
+//--- constants and reference scales
+double gamma              1.4
+double NA                 6.02214076E23
+double R_uni              8.314462618
+double mu_mag             1.256637061e-6
+double q_e                1.602176634E-19
+double U_ref              3.27E4
+double T_ref              1.286E5
+double n_ref              4.0E6
+double Molecular_mass     0.001
+double B_ref              3.0E-9
+double L_ref              3.396E6
+
+//--- solar wind = initial state = far field (H+); all other ions start at the floor state
+double sw_U               5.0E5
+double sw_T               1.75E5
+double sw_n               4.0E6
+double sw_Molecular_mass  0.001
+double sw_cy              0.0
+double sw_cz              0.0
+double sw_Bx              -1.68E-9
+double sw_By              2.49E-9
+double sw_Bz              0.0
+
+//--- planet atmosphere / photo-ionisation
+double mars_radius_m      3.396E6
+double mars_lower_boundary_km 100.0
+double mars_orbit_au      1.524
+double mars_sun_x         1.0
+double mars_sun_y         0.0
+double mars_sun_z         0.0
+double wall_T             1500          // ion/electron temperature of the lower boundary [K]
+
+//--- crustal magnetic field (dipole table: Crustal_Dipoles_File in config.yml)
+bool   is_Crustal_Bfield  0
+double Crustal_Dipoles_Cutoff_km 1500.0 // 0 = no cutoff
+
+//--- model switches
+bool   is_Hall_Efield     1
+bool   is_Ambipolar_Efield 1
+
+//--- boundaries
+string bc_inner           wall
+string bc_outer           farfield

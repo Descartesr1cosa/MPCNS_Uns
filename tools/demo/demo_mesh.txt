@@ -1,4 +1,5 @@
 //=============================================================================
+// DEMO mesh settings for tools/*.sh (the real ones: case_template/*/01_Meshgen/mesh.txt, case_template/common/partition.txt).
 // mpcns_pre setup.   usage:  mpcns_pre setup.txt [name=value ...]
 // format: "<type> <name> <value>   // comment"; command-line  name=value  overrides
 //=============================================================================
@@ -22,14 +23,3 @@ int    cs_nsolid          2
 double cs_r_in            0.8
 double cs_r_out           12.0
 double cs_r_stretch       1.12
-
-//--- partition ---------------------------------------------------------------
-string partition_method   hilbert         // hilbert | morton | rcb | metis (needs UNS_ENABLE_METIS)
-int    partition_refine_passes 8          // greedy boundary refinement, 0 = off
-double partition_tolerance 0.03
-// vertex weight = cell compute cost ; edge weight = halo volume of the shared face
-double cost_fluid         1.0             // fluid + electromagnetics
-double cost_solid         0.35            // electromagnetics only (solid shell)
-double cost_extra_face    0.04            // per face beyond 6 (polyhedra)
-double comm_fluid         1.0
-double comm_solid         0.3

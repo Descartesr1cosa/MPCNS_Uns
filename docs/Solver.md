@@ -1,10 +1,10 @@
 # MercuryUns — two-ion MHD solver (simple second-order version)
 
-Code: `MercuryUns/` (driver `driver/Solver.cpp`) on top of the model-independent `Common/` (fluid flux/reconstruction, CT, ideal EMF, implicit induction, boundaries).  Setup: `MercuryUns/INPUT/setup.txt` (numerics, defaults) + `MercuryUns/INPUT/mercury.txt` (reference Mercury case).  Tests: `tests/test_solver.cpp`, `tests/test_ideal_emf.cpp`.
+Code: `MercuryUns/` (driver `driver/Solver.cpp`) on top of the model-independent `Common/` (fluid flux/reconstruction, CT, ideal EMF, implicit induction, boundaries).  Setup: `case_template/Mercury/02_MercuryRun/{physics,numerics,run}.txt` (reference Mercury case; see `case_template/README.md`).  Tests: `tests/test_solver.cpp`, `tests/test_ideal_emf.cpp`.
 
 > Status 2026-11-07: this file describes the numerical core and its verification (the first version, SSP-RK2 + ideal EMF, `time_order=2`).  The physics added later
 > (exosphere/photo-ionisation, drag, relaxation, ambipolar, interior resistivity, exact gyration splitting, **semi-implicit Hall + resistive induction = `time_order=1`**, now the
-> default of `mercury.txt`) is documented in `docs/MercuryRun.md` and `docs/Methods.md`; the steady mode in `docs/Multigrid.md`.  The "Hall hook only" statements below refer to the first version.
+> default of `numerics.txt`) is documented in `docs/MercuryRun.md` and `docs/Methods.md`; the steady mode in `docs/Multigrid.md`.  The "Hall hook only" statements below refer to the first version.
 
 ## Model (nondimensional, same scaling as the legacy MercurySolver)
 Species s = H+, Na+ with U_s = (rho, rho u, E), p = (gamma-1)(E - rho u²/2):
